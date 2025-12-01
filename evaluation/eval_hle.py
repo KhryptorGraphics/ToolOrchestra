@@ -345,7 +345,7 @@ from typing import Iterable, Tuple, Any, Callable
 # task_list is an iterable of (func, arg) pairs
 async def run_all(
     task_list: Iterable[Tuple[Callable[[Any], Any], Any]],
-    concurrency: int = 64,
+    concurrency: int = 2,
     progress: bool = False,
     return_exceptions: bool = False,
 ):
