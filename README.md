@@ -103,6 +103,11 @@ export TAVILY_KEY="your key"
 - Substitute tool_config in line 27 in `eval_frames.py` and line 27 in `eval_hle.py` if using different tool set.
 - Modify `tools.json` and `call_tool` function in `eval_hle.py` to modify the tools and models.
 - If you want to run multiple experiments in parallel, modify variables `{EXPERIMENT_NAME1}`, `{EXPERIMENT_NAME2}`, `{EXPERIMENT_NAME3}` in `training/resume_h100.py`, which should correspond to the file name and job name in `{EXPERIMENT_NAME1}.sh`, `{EXPERIMENT_NAME2}.sh`, `{EXPERIMENT_NAME3}.sh` under the directory.
+- To prevent connection errors to host models in HLE, you may comment [this line](https://github.com/NVlabs/ToolOrchestra/blob/main/evaluation/run_hle.py#L248), and run the following two commands in separate processes:
+```
+python run_hle.py
+python eval_hle.py --model_name {cur_ckpt_dir} --output_dir {cur_output_dir} --model_config model_configs/serve2.json --example_path hle.jsonl
+```
 
 ## License
 
