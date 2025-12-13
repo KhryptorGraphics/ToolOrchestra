@@ -19,8 +19,21 @@
 
 ---
 
+## 📰 News
+
+- **2025/12/5**: Our generated dataset [ToolScale](https://huggingface.co/datasets/nvidia/ToolScale) became the **#1 most-downloaded dataset** on Hugging Face, and [Nemotron-Orchestrator-8B](https://huggingface.co/nvidia/Orchestrator-8B) ranked **#3 among all models**.
+- **2025/12/2**: 🏆 ToolOrchestra ranks **#1 on [GAIA benchmark](https://huggingface.co/spaces/gaia-benchmark/leaderboard)**!
+
+- **2025/11/27**: We release the code, training data, and model checkpoints of ToolOrchestra.
+---
+
 <p align="center">
-<img src="https://raw.githubusercontent.com/NVlabs/ToolOrchestra/main/assets/results_figure.png" alt="ToolOrchestra Performance" style="width: 100%; min-width: 300px; display: block; margin: auto;">
+<table>
+<tr>
+<td><img src="https://raw.githubusercontent.com/NVlabs/ToolOrchestra/main/assets/results_figure.png" alt="ToolOrchestra Performance" width="1030"/></td>
+<td><img src="https://raw.githubusercontent.com/NVlabs/ToolOrchestra/main/assets/cost_performance.png" alt="Cost Performance" width="500"/></td>
+</tr>
+</table>
 </p>
 
 We introduce **ToolOrchestra**, a method for training small orchestrators that coordinate the use of intelligent tools. By using both tools and specialized models, ToolOrchestra surpasses GPT-5 while being much more efficient. Given a task, the Orchestrator alternates between reasoning and tool calling in multiple turns to solve it. The Orchestrator interacts with a diverse tool set, including basic tools (e.g., web search, code interpreter), specialized LLMs (e.g., coding models, math models), and generalist LLMs (e.g., GPT-5, Llama-Nemotron-Ultra-253B, Claude Opus 4.1). During training, Orchestrator is jointly optimized by outcome, efficiency, and preference rewards via end-to-end reinforcement learning. To aid RL training, we develop an automatic pipeline to synthesize both environment and tool-call tasks at scale.
@@ -41,7 +54,7 @@ With ToolOrchestra, we produce **Orchestrator-8B**, a state-of-the-art 8B parame
 
 ```bash
 # Clone this repository
-git clone https://github.com/NVlabs/ToolOrchestra
+git clone https://github.com/NVlabs/ToolOrchestra.git
 cd ToolOrchestra
 
 # Download index files and checkpoints
