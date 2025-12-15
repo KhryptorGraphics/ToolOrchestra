@@ -46,7 +46,7 @@ With ToolOrchestra, we produce **Orchestrator-8B**, a state-of-the-art 8B parame
 
 **Key Results:**
 - On **HLE**, Orchestrator-8B achieves a score of **37.1%**, outperforming GPT-5 (35.1%) while being **2.5× more efficient**
-- On **τ2-Bench** and **FRAMES**, Orchestrator-8B surpasses GPT-5 by a wide margin while using only **~30% of the cost**
+- On **τ²-Bench** and **FRAMES**, Orchestrator-8B surpasses GPT-5 by a wide margin while using only **~30% of the cost**
 
 ---
 
@@ -61,12 +61,19 @@ cd ToolOrchestra
 git clone https://huggingface.co/datasets/multi-train/index
 export INDEX_DIR='/path/to/index'
 git clone https://huggingface.co/nvidia/Nemotron-Orchestrator-8B
-export CHECKPOINT_PATH='/path/to/checkpoint'
+export CKPT_DIR='/path/to/checkpoint'
 
 # Set environment variables
 export HF_HOME="/path/to/huggingface"
 export REPO_PATH="/path/to/this_repo"
-export CKPT_DIR="/path/to/checkpoint"
+
+# Environment for Search API, please go to [Tavily](https://app.tavily.com/home) and apply for an API key.
+export TAVILY_KEY="TAVILY_KEY"
+export WANDB_API_KEY="WANDB_API_KEY"
+export OSS_KEY="OSS_KEY"
+export CLIENT_ID="CLIENT_ID"
+export CLIENT_SECRET="CLIENT_SECRET"
+
 ```
 
 ### Environment for Training
@@ -75,6 +82,8 @@ export CKPT_DIR="/path/to/checkpoint"
 conda create -n toolorchestra python=3.12 -y
 conda activate toolorchestra
 pip install -r requirements.txt
+pip install flash-attn --no-build-isolation
+pip install flashinfer-python -i https://flashinfer.ai/whl/cu124/torch2.6/
 pip install -e training/rollout
 ```
 
@@ -83,10 +92,12 @@ pip install -e training/rollout
 ```bash
 conda create -n retriever python=3.12 -y
 conda activate retriever
-conda install pytorch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 pytorch-cuda=12.1 -c pytorch -c nvidia
-pip install transformers datasets pyserini
+conda install pytorch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 pytorch-cuda=12.4 -c pytorch -c nvidia
+pip install transformers datasets pyserini psutil
 conda install -c pytorch -c nvidia faiss-gpu
 pip install uvicorn fastapi
+pip install tavily-python
+pip install flash-attn --no-build-isolation
 ```
 
 ### Environment for vLLM Models
@@ -94,7 +105,9 @@ pip install uvicorn fastapi
 ```bash
 conda create -n vllm1 python=3.12 -y
 conda activate vllm1
-pip install torch transformers vllm
+pip install torch
+pip install "transformers<4.54.0"
+pip install vllm==0.9.2 # for gemma-2-9b-it
 cd evaluation/tau2-bench
 pip install -e .
 ```
@@ -121,19 +134,9 @@ python run_hle.py
 # Evaluate on FRAMES (requires env: vllm1 and retriever)
 python run_frames.py
 
-# Evaluate on τ2-Bench (requires env: vllm1)
+# Evaluate on τ²-Bench (requires env: vllm1)
 cd tau2-bench/
 python run.py
-```
-
----
-
-## 🔍 Search API
-
-Please go to [Tavily](https://app.tavily.com/home) and apply for an API key.
-
-```bash
-export TAVILY_KEY="your_key"
 ```
 
 ---
