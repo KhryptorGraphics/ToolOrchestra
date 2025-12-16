@@ -332,6 +332,7 @@ def call_tool(arguments):
                         contents.append(r['document']['content'])
                     elif 'contents' in r['document']:
                         contents.append(r['document']['contents'])
+        arguments['query'] = query_to_call
         arguments['search_results_data'] = contents
         if 'tokenizer' in arguments:
             arguments.pop('tokenizer')
