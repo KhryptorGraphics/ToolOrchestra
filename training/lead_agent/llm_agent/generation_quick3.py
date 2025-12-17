@@ -1056,6 +1056,8 @@ class LLMGenerationManager:
                         continue
                     cur_transfer_dir = os.path.join(gen_batch.non_tensor_batch['cur_transfer_dir'][item_idx],str(global_steps),iter_rollout_id)
                     task_path = os.path.join(cur_transfer_dir,'task.json')
+                    with open(task_path,'w') as f:
+                        json.dump([gen_batch.non_tensor_batch['example'][item_idx]],f,indent=2)
                     cur_func_call_output_path = os.path.join(cur_transfer_dir,'output.json')
                     if not os.path.isdir(cur_transfer_dir):
                         os.makedirs(cur_transfer_dir,exist_ok=True)
