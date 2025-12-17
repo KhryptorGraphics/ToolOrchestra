@@ -1056,11 +1056,11 @@ class LLMGenerationManager:
                         continue
                     cur_transfer_dir = os.path.join(gen_batch.non_tensor_batch['cur_transfer_dir'][item_idx],str(global_steps),iter_rollout_id)
                     task_path = os.path.join(cur_transfer_dir,'task.json')
-                    with open(task_path,'w') as f:
-                        json.dump([gen_batch.non_tensor_batch['example'][item_idx]],f,indent=2)
                     cur_func_call_output_path = os.path.join(cur_transfer_dir,'output.json')
                     if not os.path.isdir(cur_transfer_dir):
                         os.makedirs(cur_transfer_dir,exist_ok=True)
+                    with open(task_path,'w') as f:
+                        json.dump([gen_batch.non_tensor_batch['example'][item_idx]],f,indent=2)
                     cur_tool = gen_batch.non_tensor_batch['tools'][item_idx]
                     cur_domain = item_index.split('____')[0]
                     func_call_cmd = ['python','rollout/tau2/cli.py','--domain',cur_domain,'--agent-llm','train',
