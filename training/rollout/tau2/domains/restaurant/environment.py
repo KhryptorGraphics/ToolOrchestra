@@ -32,10 +32,11 @@ def get_environment(
 ) -> Environment:
     if solo_mode:
         raise ValueError("Restaurant domain does not support solo mode")
+    data_dir = os.path.join(os.environ.get('REPO_PATH'), 'evaluation/data_dir/tau2/domains/restaurant')
     if db is None:
-        db = RestaurantDB.load('../evaluation/data_dir/tau2/domains/restaurant/db.json')
+        db = RestaurantDB.load(os.path.join(data_dir, 'db.json'))
     tools = RestaurantTools(db)
-    with open('../evaluation/data_dir/tau2/domains/restaurant/policy.md', "r") as fp:
+    with open(os.path.join(data_dir, 'policy.md'), "r") as fp:
         policy = fp.read()
     return Environment(
         domain_name="restaurant",

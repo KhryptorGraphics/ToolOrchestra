@@ -417,11 +417,13 @@ def retrieve_endpoint(request: QueryRequest):
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--new_cache_dir', type=str, default='train_hle_all')
-parser.add_argument('--example_id_file', type=str, default='general_thought_example_urls.json')
+parser.add_argument('--new_cache_dir', type=str, default='search_cache')
+# parser.add_argument('--example_id_file', type=str, default='general_thought_example_urls.json')
 parser.add_argument('--tavily_key', type=str, default="")
 parser.add_argument('--port', type=int)
 args = parser.parse_args()
+
+args.example_id_file = os.path.join(os.environ.get('REPO_PATH'), 'data/general_thought_example_urls.json')
 
 tavily_key = os.environ.get('TAVILY_KEY',None)
 if not tavily_key:

@@ -17,6 +17,7 @@
 
 import hashlib
 import json
+import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -27,8 +28,9 @@ from loguru import logger
 
 res = load_dotenv()
 
-DATA_DIR = Path('../evaluation/data_dir/tau2/domains')
-
+# DATA_DIR = Path('../evaluation/data_dir/tau2/domains')
+data_dir = os.path.join(os.environ.get('REPO_PATH'), 'evaluation/data_dir/tau2/domains')
+DATA_DIR = Path(data_dir)
 
 def get_dict_hash(obj: dict) -> str:
     """

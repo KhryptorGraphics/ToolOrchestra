@@ -32,10 +32,11 @@ def get_environment(
 ) -> Environment:
     if solo_mode:
         raise ValueError("Travel domain does not support solo mode")
+    data_dir = os.path.join(os.environ.get('REPO_PATH'), 'evaluation/data_dir/tau2/domains/travel')
     if db is None:
-        db = TravelAgencyDB.load('../evaluation/data_dir/tau2/domains/travel/db.json')
+        db = TravelAgencyDB.load(os.path.join(data_dir, 'db.json'))
     tools = TravelAgencyTools(db)
-    with open('../evaluation/data_dir/tau2/domains/travel/policy.md', "r") as fp:
+    with open(os.path.join(data_dir, 'policy.md'), "r") as fp:
         policy = fp.read()
     return Environment(
         domain_name="travel",

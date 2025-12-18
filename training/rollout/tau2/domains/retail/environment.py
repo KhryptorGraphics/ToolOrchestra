@@ -37,10 +37,11 @@ def get_environment(
 ) -> Environment:
     if solo_mode:
         raise ValueError("Retail domain does not support solo mode")
+    data_dir = os.path.join(os.environ.get('REPO_PATH'), 'evaluation/data_dir/tau2/domains/retail')
     if db is None:
-        db = RetailDB.load('../evaluation/data_dir/tau2/domains/retail/db.json')
+        db = RetailDB.load(os.path.join(data_dir, 'db.json'))
     tools = RetailTools(db)
-    with open('../evaluation/data_dir/tau2/domains/retail/policy.md', "r") as fp:
+    with open(os.path.join(data_dir, 'policy.md'), "r") as fp:
         policy = fp.read()
     return Environment(
         domain_name="retail",

@@ -32,10 +32,11 @@ def get_environment(
 ) -> Environment:
     if solo_mode:
         raise ValueError("Basketball domain does not support solo mode")
+    data_dir = os.path.join(os.environ.get('REPO_PATH'), 'evaluation/data_dir/tau2/domains/basketball')
     if db is None:
-        db = BasketballDB.load('../evaluation/data_dir/tau2/domains/basketball/db.json')
+        db = BasketballDB.load(os.path.join(data_dir, 'db.json'))
     tools = BasketballTools(db)
-    with open('../evaluation/data_dir/tau2/domains/basketball/policy.md', "r") as fp:
+    with open(os.path.join(data_dir, 'policy.md'), "r") as fp:
         policy = fp.read()
     return Environment(
         domain_name="basketball",
