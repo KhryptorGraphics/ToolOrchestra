@@ -60,7 +60,6 @@ def get_global_user_sim_guidelines(use_tools: bool = False) -> str:
     Returns:
         The global user simulator guidelines.
     """
-    print(f"SHIZHE DEBUG: current path: {os.getcwd()}")
     if use_tools:
         with open(GLOBAL_USER_SIM_GUIDELINES_PATH_TOOLS, "r") as fp:
             user_sim_guidelines = fp.read()
