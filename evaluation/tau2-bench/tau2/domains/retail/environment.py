@@ -56,8 +56,9 @@ def get_tasks(task_path,save_to) -> list[Task]:
                     with open(os.path.join(save_dir,subfile)) as f:
                         o = json.load(f)
                     processed_task_ids.add(o['task_id'])
-                except:
-                    continue
+                except Exception as e:
+                    print(f"Error loading task {subfile}: {e}")
+                    raise
     updated_tasks = []
     for k,v in tasks_dict.items():
         if not k in processed_task_ids:

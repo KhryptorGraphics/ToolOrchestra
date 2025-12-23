@@ -271,7 +271,14 @@ def run_tasks(
         with open(os.path.join(save_dir,cur_simulation['id']+'.json'),'w') as f:
             json.dump({
                 'reward': cur_simulation["reward_info"]['reward'],
-            },f,indent=2)
+                'id': cur_simulation['id'],
+                'task_id': cur_simulation['task_id'],
+                'timestamp': cur_simulation['timestamp'],
+                'duration': cur_simulation['duration'],
+                'agent_cost': cur_simulation['agent_cost'],
+                'user_cost': cur_simulation['user_cost'],
+                'messages': cur_simulation['messages'],
+            }, f, indent=2)
             
 
     def _run(task: Task, trial: int, seed: int, progress_str: str) -> SimulationRun:
