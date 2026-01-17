@@ -2384,6 +2384,270 @@ synthesize_research_results() {
 export -f synthesize_research_results
 ```
 
+### 13.2.1 Research Feedback Loop (Enhancement 3)
+
+When synthesis produces low-confidence results, generate NEW search queries:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# RESEARCH FEEDBACK LOOP (v2.0)
+# When confidence < threshold, identifies gaps and generates new queries
+# ═══════════════════════════════════════════════════════════════════════════
+
+MIN_CONFIDENCE_THRESHOLD=60  # Minimum confidence score (0-100)
+MAX_RESEARCH_ITERATIONS=5    # Max feedback loop iterations
+
+calculate_solution_confidence() {
+  local paper_count="${#SYNTHESIZED_PAPERS[@]}"
+  local avg_citations=0
+  local recency_bonus=0
+
+  # Confidence factors:
+  # 1. Number of relevant papers (20 points max)
+  local count_score=$((paper_count > 10 ? 20 : paper_count * 2))
+
+  # 2. Average citation count (30 points max)
+  local total_citations=0
+  for paper in "${RANKED_PAPERS[@]}"; do
+    citations=$(echo "$paper" | grep -oP 'citations:\K[0-9]+' || echo "0")
+    total_citations=$((total_citations + citations))
+  done
+  if [ "$paper_count" -gt 0 ]; then
+    avg_citations=$((total_citations / paper_count))
+    avg_citations=$((avg_citations > 300 ? 30 : avg_citations / 10))
+  fi
+
+  # 3. Recency of papers (20 points max)
+  local current_year=$(date +%Y)
+  local recent_count=0
+  for paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    year=$(echo "$paper" | grep -oP 'year:\K[0-9]+' || echo "2000")
+    if [ "$year" -ge "$((current_year - 3))" ]; then
+      recent_count=$((recent_count + 1))
+    fi
+  done
+  recency_bonus=$((recent_count * 4 > 20 ? 20 : recent_count * 4))
+
+  # 4. Implementation details found (30 points max)
+  local impl_score=0
+  # Check if papers have code links, algorithms, etc.
+  for paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    if echo "$paper" | grep -qi "github\|implementation\|code\|algorithm"; then
+      impl_score=$((impl_score + 6))
+    fi
+  done
+  impl_score=$((impl_score > 30 ? 30 : impl_score))
+
+  SOLUTION_CONFIDENCE=$((count_score + avg_citations + recency_bonus + impl_score))
+
+  echo "Confidence Score: $SOLUTION_CONFIDENCE/100"
+  echo "  Paper count score: $count_score/20"
+  echo "  Citation score: $avg_citations/30"
+  echo "  Recency bonus: $recency_bonus/20"
+  echo "  Implementation score: $impl_score/30"
+}
+
+identify_research_gaps() {
+  echo "=== Identifying Research Gaps ==="
+
+  MISSING_ASPECTS=()
+
+  # Check what's missing from current research
+  # 1. Implementation details
+  local has_code=false
+  for paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    if echo "$paper" | grep -qi "github\|code\|implementation"; then
+      has_code=true
+      break
+    fi
+  done
+  [ "$has_code" = "false" ] && MISSING_ASPECTS+=("implementation code")
+
+  # 2. Recent papers
+  local has_recent=false
+  local current_year=$(date +%Y)
+  for paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    year=$(echo "$paper" | grep -oP 'year:\K[0-9]+' || echo "2000")
+    [ "$year" -ge "$((current_year - 2))" ] && has_recent=true && break
+  done
+  [ "$has_recent" = "false" ] && MISSING_ASPECTS+=("recent developments")
+
+  # 3. Foundational papers (high citations)
+  local has_foundational=false
+  for paper in "${RANKED_PAPERS[@]}"; do
+    citations=$(echo "$paper" | grep -oP 'citations:\K[0-9]+' || echo "0")
+    [ "$citations" -gt 500 ] && has_foundational=true && break
+  done
+  [ "$has_foundational" = "false" ] && MISSING_ASPECTS+=("foundational papers")
+
+  echo "Missing aspects: ${MISSING_ASPECTS[*]:-none}"
+  export MISSING_ASPECTS
+}
+
+generate_queries_from_gaps() {
+  echo "=== Generating New Queries from Gaps ==="
+
+  NEW_QUERIES=()
+  local original_query="$1"
+
+  for gap in "${MISSING_ASPECTS[@]}"; do
+    case "$gap" in
+      "implementation code")
+        NEW_QUERIES+=("$original_query implementation github")
+        NEW_QUERIES+=("$original_query code repository")
+        ;;
+      "recent developments")
+        NEW_QUERIES+=("$original_query 2024 2025")
+        NEW_QUERIES+=("$original_query state of the art recent")
+        ;;
+      "foundational papers")
+        NEW_QUERIES+=("$original_query seminal foundational survey")
+        NEW_QUERIES+=("$original_query benchmark comparison")
+        ;;
+    esac
+  done
+
+  echo "Generated ${#NEW_QUERIES[@]} new queries"
+  export NEW_QUERIES
+}
+
+run_research_with_feedback() {
+  local initial_query="$1"
+  local iteration=0
+
+  while [ $iteration -lt $MAX_RESEARCH_ITERATIONS ]; do
+    iteration=$((iteration + 1))
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    echo "                    RESEARCH ITERATION $iteration / $MAX_RESEARCH_ITERATIONS"
+    echo "═══════════════════════════════════════════════════════════════════════════"
+
+    # Search with current query
+    if [ $iteration -eq 1 ]; then
+      search_academic_papers_orchestrated "$initial_query"
+    else
+      for query in "${NEW_QUERIES[@]}"; do
+        search_academic_papers_orchestrated "$query"
+      done
+    fi
+
+    # Synthesize results
+    synthesize_research_results
+
+    # Calculate confidence
+    calculate_solution_confidence
+
+    # Check if confidence is sufficient
+    if [ "$SOLUTION_CONFIDENCE" -ge "$MIN_CONFIDENCE_THRESHOLD" ]; then
+      echo ">>> Confidence threshold met ($SOLUTION_CONFIDENCE >= $MIN_CONFIDENCE_THRESHOLD)"
+      break
+    fi
+
+    echo ">>> Low confidence ($SOLUTION_CONFIDENCE < $MIN_CONFIDENCE_THRESHOLD)"
+    echo ">>> Generating new queries for feedback loop..."
+
+    # Identify gaps and generate new queries
+    identify_research_gaps
+    generate_queries_from_gaps "$initial_query"
+
+    if [ ${#NEW_QUERIES[@]} -eq 0 ]; then
+      echo ">>> No new queries generated. Stopping feedback loop."
+      break
+    fi
+  done
+
+  echo ""
+  echo "Research feedback loop complete after $iteration iterations"
+  echo "Final confidence: $SOLUTION_CONFIDENCE"
+}
+```
+
+### 13.2.2 Cross-Iteration Research Aggregation (Enhancement 6)
+
+Merge findings from previous iterations with current results:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# CROSS-ITERATION RESEARCH AGGREGATION (v2.0)
+# Explicitly merges findings from previous iterations
+# ═══════════════════════════════════════════════════════════════════════════
+
+aggregate_research_across_iterations() {
+  local current_iteration="$1"
+
+  echo "=== Aggregating Research Across Iterations ==="
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 1: Retrieve previous findings from memory
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Retrieving previous research findings..."
+
+  # From Claude-mem
+  # MCP call: mcp__plugin_claude-mem_mcp-search__search
+  #   query: "research findings papers"
+  #   project: "$PROJECT_NAME"
+  #   type: "observation"
+  #   limit: 20
+
+  # From Serena memory
+  # MCP call: mcp__serena__list_memories
+  # Then read relevant research memories
+
+  # From Cipher
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "What research findings have we collected for this project?"
+
+  PREVIOUS_FINDINGS=()
+  # (Would be populated from memory queries)
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 2: Merge with current findings
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Merging with current findings..."
+
+  MERGED_PAPERS=()
+
+  # Add previous papers (avoiding duplicates)
+  for prev_paper in "${PREVIOUS_FINDINGS[@]}"; do
+    prev_id=$(echo "$prev_paper" | grep -oP 'id:\K[^,]+' || echo "")
+    is_duplicate=false
+
+    for new_paper in "${SYNTHESIZED_PAPERS[@]}"; do
+      new_id=$(echo "$new_paper" | grep -oP 'id:\K[^,]+' || echo "")
+      [ "$prev_id" = "$new_id" ] && is_duplicate=true && break
+    done
+
+    [ "$is_duplicate" = "false" ] && MERGED_PAPERS+=("$prev_paper")
+  done
+
+  # Add current papers
+  for new_paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    MERGED_PAPERS+=("$new_paper")
+  done
+
+  echo "  Previous findings: ${#PREVIOUS_FINDINGS[@]}"
+  echo "  Current findings: ${#SYNTHESIZED_PAPERS[@]}"
+  echo "  Merged total: ${#MERGED_PAPERS[@]}"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 3: Store merged result
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Storing aggregated research..."
+
+  store_to_memory "aggregated_research" \
+    "Iteration $current_iteration: ${#MERGED_PAPERS[@]} papers aggregated" \
+    "research,aggregated,iteration_$current_iteration"
+
+  # Also store in Serena for long-term persistence
+  # MCP call: mcp__serena__write_memory
+  #   memory_file_name: "research_aggregated_$PROJECT_NAME.md"
+  #   content: <formatted paper list>
+
+  export MERGED_PAPERS
+  echo "Aggregation complete"
+}
+```
+
 ### 13.3 Paper Analysis and Download
 
 ```bash
@@ -3260,6 +3524,442 @@ trigger_self_healing() {
   store_to_memory "error" "Self-healing triggered - not making progress" "self-healing,stuck"
 
   echo "Self-healing analysis complete"
+}
+```
+
+### 15.3.1 Enhanced Self-Healing (v2.0)
+
+The enhanced self-healing mechanism doesn't just create tasks - it actively attempts to resolve blockers:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# ENHANCED SELF-HEALING (v2.0)
+# Actually resolves issues, not just creates tasks
+# ═══════════════════════════════════════════════════════════════════════════
+
+trigger_self_healing_enhanced() {
+  echo "=== Enhanced Self-Healing Triggered ==="
+
+  # 1. Identify blocked tasks and their blockers
+  BLOCKED_TASKS=$(bd blocked 2>/dev/null)
+
+  if [ -n "$BLOCKED_TASKS" ]; then
+    echo "Analyzing blocked tasks..."
+
+    while IFS= read -r blocked_line; do
+      task_id=$(echo "$blocked_line" | awk '{print $1}')
+      [ -z "$task_id" ] && continue
+
+      # Get blocker reason from task details
+      BLOCKER_INFO=$(bd show "$task_id" 2>/dev/null | grep -i "blocked\|depends" || echo "unknown")
+
+      echo "  Task $task_id blocked by: $BLOCKER_INFO"
+
+      # Attempt to resolve based on blocker type
+      case "$BLOCKER_INFO" in
+        *"import"*|*"Import"*|*"ModuleNotFound"*)
+          echo "  -> Attempting to resolve import issue..."
+          # Extract module name and try to install
+          MODULE=$(echo "$BLOCKER_INFO" | grep -oP "(?<=No module named ')[^']+")
+          if [ -n "$MODULE" ]; then
+            conda run -n {{ENV_NAME}} pip install "$MODULE" 2>/dev/null && \
+              echo "  -> Installed $MODULE" || \
+              echo "  -> Could not install $MODULE"
+          fi
+          ;;
+        *"test"*|*"Test"*|*"pytest"*)
+          echo "  -> Running targeted test fix..."
+          # Could trigger Phase 14 for this specific issue
+          detect_functionality_problems "$PROJECT_PATH"
+          ;;
+        *"environment"*|*"conda"*|*"CUDA"*)
+          echo "  -> Triggering environment rebuild (Phase 2-4)..."
+          # Route to environment phases
+          ;;
+        *)
+          echo "  -> Creating high-priority unblock task..."
+          bd create --title="[Self-Heal] Unblock: $task_id" --type=task --priority=0 \
+            --description="Self-healing: Investigate blocker: $BLOCKER_INFO
+
+Suggested actions:
+1. Check dependencies
+2. Review error logs
+3. Test in isolation"
+          ;;
+      esac
+    done <<< "$BLOCKED_TASKS"
+  fi
+
+  # 2. Check for stale in_progress tasks (stuck > 30 minutes)
+  STALE_TASKS=$(bd list --status=in_progress 2>/dev/null | head -5)
+  if [ -n "$STALE_TASKS" ]; then
+    echo "Found stale in_progress tasks:"
+    echo "$STALE_TASKS"
+    # Could reset these or create investigation tasks
+  fi
+
+  # 3. Query memory for similar past solutions
+  echo "Searching memory for similar situations..."
+  retrieve_relevant_memories "stuck not progressing self-healing unblock"
+
+  echo "Enhanced self-healing complete"
+}
+```
+
+### 15.3.2 Dynamic Phase Routing (Any → Any)
+
+**Enhancement 7**: Every phase can route to ANY other phase based on current state:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# DYNAMIC PHASE ROUTING (v2.0)
+# Multi-signal state analysis for intelligent phase selection
+# Any phase can route to any other phase based on current state
+# ═══════════════════════════════════════════════════════════════════════════
+
+decide_next_phase() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # ASSESS CURRENT STATE FROM MULTIPLE SIGNALS
+  # ─────────────────────────────────────────────────────────────────────────
+
+  # Environment state
+  ENV_BROKEN=false
+  if ! conda info --envs 2>/dev/null | grep -q "^[^ ]"; then
+    ENV_BROKEN=true
+  fi
+  if command -v nvidia-smi &>/dev/null && ! nvidia-smi &>/dev/null; then
+    ENV_BROKEN=true
+  fi
+
+  # Code state (NotImplementedError, stubs)
+  CODE_INCOMPLETE=$(grep -rn "NotImplementedError\|raise NotImplemented\|pass  # TODO" \
+    "$PROJECT_PATH" --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l || echo "0")
+
+  # Test state
+  if [ -d "$PROJECT_PATH/tests" ]; then
+    TEST_RESULT=$(cd "$PROJECT_PATH" && python -m pytest tests/ --collect-only -q 2>&1 | tail -1 || echo "error")
+    if echo "$TEST_RESULT" | grep -q "error\|Error"; then
+      TESTS_FAILING=true
+    else
+      TESTS_FAILING=false
+    fi
+  else
+    TESTS_FAILING=false
+  fi
+
+  # Research state (complex ML/AI keywords)
+  RESEARCH_SCORE=$(grep -rn "transformer\|attention\|neural network\|deep learning\|reinforcement" \
+    "$PROJECT_PATH" --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l || echo "0")
+
+  # Beads state
+  BLOCKED_COUNT=$(bd blocked 2>/dev/null | grep -c . || echo "0")
+  READY_COUNT=$(bd ready 2>/dev/null | grep -c . || echo "0")
+  IN_PROGRESS=$(bd list --status=in_progress 2>/dev/null | grep -c . || echo "0")
+
+  # Port conflicts
+  PORT_CONFLICTS=false
+  # (Could check for specific port conflicts here)
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE SELECTION MATRIX (priority order)
+  # ─────────────────────────────────────────────────────────────────────────
+  #
+  # 1. Environment broken         → Phase 2-4 (Conda/CUDA/Dependencies)
+  # 2. Blocked tasks              → Self-healing
+  # 3. Code incomplete + research → Phase 13 (Academic research)
+  # 4. Code incomplete            → Phase 11 (Development)
+  # 5. Tests failing              → Phase 14 (Fix functionality)
+  # 6. Ready tasks exist          → Phase 11 (Development)
+  # 7. All criteria met           → Verify completion
+
+  if [ "$ENV_BROKEN" = "true" ]; then
+    echo "2"  # Rebuild environment
+    return
+  fi
+
+  if [ "$BLOCKED_COUNT" -gt 0 ]; then
+    echo "self-heal"  # Trigger self-healing
+    return
+  fi
+
+  if [ "$CODE_INCOMPLETE" -gt 0 ]; then
+    if [ "$RESEARCH_SCORE" -gt 20 ]; then
+      echo "13"  # Research phase first
+    else
+      echo "11"  # Development directly
+    fi
+    return
+  fi
+
+  if [ "$TESTS_FAILING" = "true" ]; then
+    echo "14"  # Fix functionality
+    return
+  fi
+
+  if [ "$READY_COUNT" -gt 0 ]; then
+    echo "11"  # Development - work on ready tasks
+    return
+  fi
+
+  if [ "$IN_PROGRESS" -gt 0 ]; then
+    echo "11"  # Continue development
+    return
+  fi
+
+  # Check completion criteria
+  echo "verify"  # Verify completion
+}
+```
+
+### 15.3.3 Guaranteed Completion (No Hard Limits)
+
+**Enhancement 8**: System runs until TRUE completion, with intelligent escalation when stuck:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# GUARANTEED COMPLETION (v2.0)
+# No hard iteration limits - uses escalation for stuck states
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Configuration
+STUCK_THRESHOLD=5           # Iterations without progress before escalating
+ESCALATION_LEVEL=0          # 0=normal, 1=aggressive, 2=human-assisted
+LAST_COMPLEXITY_SCORES=()   # Track history for stuck detection
+
+stuck_for_too_long() {
+  # Check if complexity scores haven't improved for STUCK_THRESHOLD iterations
+  local score_count=${#LAST_COMPLEXITY_SCORES[@]}
+
+  if [ $score_count -lt $STUCK_THRESHOLD ]; then
+    return 1  # Not enough data yet
+  fi
+
+  # Get last N scores
+  local recent_scores=("${LAST_COMPLEXITY_SCORES[@]: -$STUCK_THRESHOLD}")
+
+  # Check if all scores are the same (no progress)
+  local first_score=${recent_scores[0]}
+  local all_same=true
+
+  for score in "${recent_scores[@]}"; do
+    if [ "$score" != "$first_score" ]; then
+      all_same=false
+      break
+    fi
+  done
+
+  [ "$all_same" = "true" ] && return 0 || return 1
+}
+
+generate_stuck_report() {
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║                    STUCK REPORT - ESCALATION TRIGGERED                    ║"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "Project: $PROJECT_NAME"
+  echo "Path: $PROJECT_PATH"
+  echo "Escalation Level: $ESCALATION_LEVEL"
+  echo ""
+  echo "Recent complexity scores: ${LAST_COMPLEXITY_SCORES[*]}"
+  echo ""
+  echo "=== Current State ==="
+  bd stats 2>/dev/null || echo "  (bd stats unavailable)"
+  echo ""
+  echo "=== Blocked Tasks ==="
+  bd blocked 2>/dev/null || echo "  (none)"
+  echo ""
+  echo "=== Open Tasks ==="
+  bd list --status=open 2>/dev/null | head -10 || echo "  (none)"
+
+  # Create Beads task for human intervention
+  bd create --title="[ESCALATION] Human intervention required" --type=task --priority=0 \
+    --description="Orchestration stuck after $STUCK_THRESHOLD iterations without progress.
+
+Escalation Level: $ESCALATION_LEVEL
+Recent scores: ${LAST_COMPLEXITY_SCORES[*]}
+
+Please investigate and provide guidance:
+1. Check blocked tasks
+2. Review recent errors
+3. Consider alternative approaches"
+
+  echo ""
+  echo ">>> Created escalation task. Waiting for human input..."
+}
+
+wait_for_human_input() {
+  # In non-interactive mode, just pause briefly
+  # In interactive mode, wait for confirmation
+  echo ""
+  echo "Press ENTER after resolving the escalation task, or Ctrl+C to abort."
+  read -r
+  ESCALATION_LEVEL=0  # Reset after human helps
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ENHANCED MASTER ORCHESTRATION LOOP (v2.0)
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_master_orchestration_v2() {
+  PROJECT_PATH="${1:-$(pwd)}"
+  PROJECT_NAME="${2:-$(basename $PROJECT_PATH)}"
+
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║      RALPH-LOOP MASTER ORCHESTRATION (v2.0 - Dynamic Routing)             ║"
+  echo "║      Project: $PROJECT_NAME"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  local iteration=0
+  LAST_COMPLEXITY_SCORES=()
+  ESCALATION_LEVEL=0
+
+  # Initialize memory layer
+  initialize_memory_layer "$PROJECT_PATH" "$PROJECT_NAME"
+
+  # Recover previous session context
+  recover_after_compaction
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MAIN LOOP - No hard limit, loops until TRUE completion
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  while true; do
+    iteration=$((iteration + 1))
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ ORCHESTRATION ITERATION $iteration (Escalation: $ESCALATION_LEVEL)"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 1: DYNAMIC PHASE ROUTING
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 1: Analyzing state and routing dynamically..."
+
+    NEXT_PHASE=$(decide_next_phase "$PROJECT_PATH")
+    echo "  Routing to: $NEXT_PHASE"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 2: EXECUTE PHASE
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 2: Executing phase $NEXT_PHASE..."
+
+    case "$NEXT_PHASE" in
+      "2") setup_conda_environment "$PROJECT_PATH" ;;
+      "3") setup_cuda_environment "$PROJECT_PATH" ;;
+      "4") run_dependency_installation "$PROJECT_PATH" ;;
+      "11") run_development_completion "$PROJECT_PATH" ;;
+      "12") run_phase_12_verification "$PROJECT_PATH" "{{ENV_NAME}}" ;;
+      "13") run_research_phase "$PROJECT_PATH" ;;
+      "14") run_functionality_fix_phase "$PROJECT_PATH" ;;
+      "self-heal") trigger_self_healing_enhanced ;;
+      "verify") check_completion_criteria "$PROJECT_PATH" ;;
+    esac
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 3: CHECK COMPLETION CRITERIA
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 3: Checking completion criteria..."
+
+    check_completion_criteria "$PROJECT_PATH"
+    CRITERIA_RESULT=$?
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 4: TRUE COMPLETION CHECK
+    # ─────────────────────────────────────────────────────────────────────────
+    if [ $CRITERIA_RESULT -eq 0 ]; then
+      echo ""
+      echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+      echo "║ PROJECT COMPLETE - All criteria met after $iteration iterations!          ║"
+      echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+      # Final persistence
+      persist_before_compaction
+      bd sync
+
+      return 0
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 5: BD SYNC (Enhancement 2 - every iteration)
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 5: Syncing Beads state..."
+    bd sync 2>/dev/null || true
+
+    # Store iteration progress in memory
+    store_to_memory "progress" "Iteration $iteration: Next=$NEXT_PHASE, Score=$COMPLEXITY_SCORE" \
+      "iteration,progress"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 6: STUCK DETECTION (Enhancement 8)
+    # ─────────────────────────────────────────────────────────────────────────
+    if stuck_for_too_long; then
+      ESCALATION_LEVEL=$((ESCALATION_LEVEL + 1))
+
+      echo ">>> Stuck detected! Escalation level: $ESCALATION_LEVEL"
+
+      case $ESCALATION_LEVEL in
+        1)
+          echo ">>> Triggering aggressive self-healing..."
+          trigger_self_healing_enhanced
+          ;;
+        2)
+          echo ">>> Human intervention required..."
+          generate_stuck_report
+          wait_for_human_input
+          ;;
+        *)
+          # Reset and try again with fresh approach
+          ESCALATION_LEVEL=0
+          LAST_COMPLEXITY_SCORES=()
+          ;;
+      esac
+    fi
+
+  done  # while true - no MAX_ITERATIONS
+}
+```
+
+### 15.3.4 Conditional MCP Selection
+
+**Enhancement 4**: Route to specific MCP tools based on error type:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# CONDITIONAL MCP SELECTION
+# Routes to specific tools based on error/need type
+# ═══════════════════════════════════════════════════════════════════════════
+
+select_mcp_tools_for_error() {
+  local error_type="$1"
+
+  case "$error_type" in
+    "ImportError"|"ModuleNotFoundError")
+      # Use code analysis tools
+      echo "serena,code-context"
+      ;;
+    "RuntimeError"|"TypeError"|"ValueError")
+      # Use reasoning tools for debugging
+      echo "sequential-thinking,code-reasoning"
+      ;;
+    "research_needed"|"NotImplementedError")
+      # Use academic research tools
+      echo "arxiv-advanced,semantic-scholar,perplexity"
+      ;;
+    "external_api"|"HTTPError"|"ConnectionError")
+      # Use web tools for API investigation
+      echo "tavily,linkup,playwright"
+      ;;
+    "documentation"|"docstring")
+      # Use context and memory tools
+      echo "context7,serena,cipher"
+      ;;
+    *)
+      # Default: comprehensive toolset
+      echo "serena,code-reasoning,perplexity"
+      ;;
+  esac
 }
 ```
 

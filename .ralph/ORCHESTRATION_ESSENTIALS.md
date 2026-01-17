@@ -1,7 +1,28 @@
-# Ralph-Loop Orchestration Essentials
+# Ralph-Loop Orchestration Essentials (v2.0)
 
 > **Quick Reference**: Condensed orchestration guide for token-efficient operations.
 > For full documentation, use `ralph-context <phase>` to retrieve specific phases.
+
+---
+
+## v2.0 Enhancements Summary
+
+| Enhancement | Function | Description |
+|-------------|----------|-------------|
+| **Dynamic Routing** | `decide_next_phase()` | Any phase can route to any other based on state |
+| **Guaranteed Completion** | `run_master_orchestration_v2()` | No hard limits, escalation-based |
+| **Self-Healing** | `trigger_self_healing_enhanced()` | Actually resolves blockers |
+| **bd sync Every Iteration** | Built-in | Persists Beads state continuously |
+| **Conditional MCP Selection** | `select_mcp_tools_for_error()` | Routes to tools by error type |
+| **Research Feedback Loop** | `run_research_with_feedback()` | Iterates until confidence threshold |
+| **Cross-Iteration Aggregation** | `aggregate_research_across_iterations()` | Merges findings from previous sessions |
+
+### Global CLI Commands
+```bash
+ralph-init [PROJECT_PATH]       # Initialize orchestration in any project
+ralph-loop --orchestrator       # Run full autonomous orchestration (v2.0)
+ralph-loop --phase N            # Run specific phase only
+```
 
 ---
 
@@ -94,20 +115,38 @@ linkup                            → Web search and extraction
 
 ---
 
-## Project Status Routing
+## Project Status Routing (v2.0 Dynamic)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              PROJECT STATUS → ACTION ROUTING                     │
+│          DYNAMIC PHASE ROUTING (v2.0 - decide_next_phase)        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  complete                → Phase 9 (Deploy/Verify)              │
-│  functionality_problems  → Phase 14 (Fix) → Re-assess           │
-│  incomplete_research     → Phase 13 (Research) → Phase 11       │
-│  incomplete_critical     → Phase 11 (Dev Completion)            │
-│  incomplete_minor        → Phase 11 (Dev Completion)            │
+│  PRIORITY ORDER:                                                │
+│  1. Environment broken     → Phase 2-4 (Conda/CUDA/Deps)        │
+│  2. Blocked tasks          → Self-healing                       │
+│  3. Code incomplete        → Phase 13 (if research_score > 20)  │
+│                           → Phase 11 (otherwise)                │
+│  4. Tests failing          → Phase 14 (Fix functionality)       │
+│  5. Ready tasks exist      → Phase 11 (Development)             │
+│  6. All criteria met       → Verify completion                  │
+│                                                                 │
+│  STUCK DETECTION:                                               │
+│  - No progress for 5 iterations → Escalation Level 1            │
+│    → Aggressive self-healing                                    │
+│  - Still stuck → Escalation Level 2                             │
+│    → Human intervention (creates task, waits)                   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### Legacy Routing (v1.0 - still supported)
+```
+complete                → Phase 9 (Deploy/Verify)
+functionality_problems  → Phase 14 (Fix) → Re-assess
+incomplete_research     → Phase 13 (Research) → Phase 11
+incomplete_critical     → Phase 11 (Dev Completion)
+incomplete_minor        → Phase 11 (Dev Completion)
 ```
 
 ---

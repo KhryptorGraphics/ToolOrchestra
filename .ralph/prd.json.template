@@ -1,0 +1,167 @@
+{
+  "_comment": "Ralph-Loop PRD Template - Replace all {{PLACEHOLDER}} values",
+  "_version": "1.0",
+  "_docs": "See MASTER_PROMPT_TEMPLATE.md for full documentation",
+
+  "project": "{{PROJECT_NAME}}",
+  "version": "1.0",
+
+  "platform": {
+    "device": "{{DEVICE_NAME}}",
+    "os": "{{PLATFORM_INFO}}",
+    "cuda": "{{CUDA_VERSION}}",
+    "driver": "{{DRIVER_VERSION}}",
+    "python": "{{PYTHON_VERSION}}",
+    "compute_capability": "{{COMPUTE_CAPABILITY}}"
+  },
+
+  "index_url": "{{PYPI_MIRROR_URL}}",
+
+  "environments": {
+    "{{MAIN_ENV}}": "{{MAIN_ENV_PURPOSE}}",
+    "{{SECONDARY_ENV}}": "{{SECONDARY_ENV_PURPOSE}}"
+  },
+
+  "ports": {
+    "{{SERVICE_1}}": "{{PORT_1}}",
+    "{{SERVICE_2}}": "{{PORT_2}}",
+    "{{SERVICE_3}}": "{{PORT_3}}"
+  },
+
+  "env_vars": {
+    "CUDA_HOME": "{{CUDA_HOME}}",
+    "HF_HOME": "{{HF_CACHE_PATH}}",
+    "REPO_PATH": "{{PROJECT_PATH}}",
+    "INDEX_DIR": "{{INDEX_DIR}}",
+    "CKPT_DIR": "{{CHECKPOINT_DIR}}"
+  },
+
+  "packages": {
+    "cuda_wheels": {
+      "torch": "{{TORCH_VERSION}}",
+      "torchvision": "{{TORCHVISION_VERSION}}",
+      "torchaudio": "{{TORCHAUDIO_VERSION}}",
+      "flash-attn": "{{FLASH_ATTN_VERSION}}",
+      "vllm": "{{VLLM_VERSION}}",
+      "cupy": "{{CUPY_VERSION}}"
+    },
+    "project_packages": [
+      "{{PROJECT_PATH}}/{{SUBPACKAGE_1}}",
+      "{{PROJECT_PATH}}/{{SUBPACKAGE_2}}"
+    ]
+  },
+
+  "tasks": [
+    {
+      "id": "phase-1-pytorch-{{MAIN_ENV}}",
+      "title": "Install PyTorch CUDA {{CUDA_VERSION}} in {{MAIN_ENV}}",
+      "environment": "{{MAIN_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n {{MAIN_ENV}} pip install torch=={{TORCH_VERSION}} torchvision=={{TORCHVISION_VERSION}} torchaudio=={{TORCHAUDIO_VERSION}} --index-url {{PYPI_MIRROR_URL}}"
+      ],
+      "verification": "conda run -n {{MAIN_ENV}} python -c \"import torch; assert torch.cuda.is_available(); print(f'CUDA {torch.version.cuda}')\"",
+      "dependencies": []
+    },
+
+    {
+      "id": "phase-1b-pytorch-{{SECONDARY_ENV}}",
+      "title": "Install PyTorch CUDA {{CUDA_VERSION}} in {{SECONDARY_ENV}}",
+      "environment": "{{SECONDARY_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n {{SECONDARY_ENV}} pip uninstall -y torch torchvision torchaudio",
+        "conda run -n {{SECONDARY_ENV}} pip install torch=={{TORCH_VERSION}} torchvision=={{TORCHVISION_VERSION}} torchaudio=={{TORCHAUDIO_VERSION}} --index-url {{PYPI_MIRROR_URL}}"
+      ],
+      "verification": "conda run -n {{SECONDARY_ENV}} python -c \"import torch; assert torch.cuda.is_available(); print(f'{{SECONDARY_ENV}} CUDA {torch.version.cuda}')\"",
+      "dependencies": []
+    },
+
+    {
+      "id": "phase-2-flash-attn",
+      "title": "Install Flash Attention {{FLASH_ATTN_VERSION}} in all environments",
+      "environment": "{{MAIN_ENV}}, {{SECONDARY_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n {{MAIN_ENV}} pip uninstall -y flash-attn",
+        "conda run -n {{MAIN_ENV}} pip install flash-attn=={{FLASH_ATTN_VERSION}} --index-url {{PYPI_MIRROR_URL}}",
+        "conda run -n {{SECONDARY_ENV}} pip uninstall -y flash-attn",
+        "conda run -n {{SECONDARY_ENV}} pip install flash-attn=={{FLASH_ATTN_VERSION}} --index-url {{PYPI_MIRROR_URL}}"
+      ],
+      "verification": "conda run -n {{MAIN_ENV}} python -c \"from flash_attn import flash_attn_func; print('{{MAIN_ENV}} Flash OK')\" && conda run -n {{SECONDARY_ENV}} python -c \"from flash_attn import flash_attn_func; print('{{SECONDARY_ENV}} Flash OK')\"",
+      "dependencies": ["phase-1-pytorch-{{MAIN_ENV}}", "phase-1b-pytorch-{{SECONDARY_ENV}}"]
+    },
+
+    {
+      "id": "phase-3-vllm",
+      "title": "Install vLLM {{VLLM_VERSION}} in all environments",
+      "environment": "{{MAIN_ENV}}, {{SECONDARY_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n {{MAIN_ENV}} pip install vllm=={{VLLM_VERSION}} --index-url {{PYPI_MIRROR_URL}}",
+        "conda run -n {{SECONDARY_ENV}} pip install vllm=={{VLLM_VERSION}} --index-url {{PYPI_MIRROR_URL}}"
+      ],
+      "verification": "conda run -n {{MAIN_ENV}} python -c \"from vllm import LLM; print('{{MAIN_ENV}} vLLM OK')\" && conda run -n {{SECONDARY_ENV}} python -c \"from vllm import LLM; print('{{SECONDARY_ENV}} vLLM OK')\"",
+      "dependencies": ["phase-2-flash-attn"]
+    },
+
+    {
+      "id": "phase-4-core-packages",
+      "title": "Install Core ML Packages in {{MAIN_ENV}}",
+      "environment": "{{MAIN_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n {{MAIN_ENV}} pip install cupy=={{CUPY_VERSION}} --index-url {{PYPI_MIRROR_URL}}",
+        "grep -v '^#' {{PROJECT_PATH}}/requirements.txt | grep -v '^flash' | grep -v '^xformers' | grep -v '^vllm' | grep -v '^torch' | grep -v '^cupy' | grep -v '^nvidia-' | grep -v '^$' > /tmp/requirements-filtered.txt",
+        "conda run -n {{MAIN_ENV}} pip install -r /tmp/requirements-filtered.txt"
+      ],
+      "verification": "conda run -n {{MAIN_ENV}} python -c \"import transformers, accelerate, datasets, ray, wandb, hydra; import cupy; print('Core ML OK')\"",
+      "dependencies": ["phase-3-vllm"]
+    },
+
+    {
+      "id": "phase-5-project-packages",
+      "title": "Install Project Packages Editable in {{MAIN_ENV}}",
+      "environment": "{{MAIN_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "cd {{PROJECT_PATH}}/{{SUBPACKAGE_1}} && conda run -n {{MAIN_ENV}} pip install -e .",
+        "cd {{PROJECT_PATH}}/{{SUBPACKAGE_2}} && conda run -n {{MAIN_ENV}} pip install -e ."
+      ],
+      "verification": "conda run -n {{MAIN_ENV}} python -c \"import {{PACKAGE_1}}, {{PACKAGE_2}}; print('Project packages OK')\"",
+      "dependencies": ["phase-4-core-packages"]
+    },
+
+    {
+      "id": "phase-6-env-vars",
+      "title": "Configure Environment Variables and Ports",
+      "environment": "system-wide",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "# Add to ~/.bashrc or ~/.profile - see MASTER_PROMPT_TEMPLATE.md for full template"
+      ],
+      "verification": "source ~/.bashrc && test -n \"$CUDA_HOME\" && test -d \"$INDEX_DIR\" && echo 'Environment OK'",
+      "dependencies": []
+    },
+
+    {
+      "id": "phase-7-verification",
+      "title": "Final Verification (all environments)",
+      "environment": "{{MAIN_ENV}}, {{SECONDARY_ENV}}",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "# Run comprehensive verification script - see MASTER_PROMPT_TEMPLATE.md"
+      ],
+      "verification": "All CUDA and ML imports successful in all environments",
+      "dependencies": ["phase-5-project-packages", "phase-6-env-vars"]
+    }
+  ]
+}

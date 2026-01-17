@@ -1,0 +1,358 @@
+# {{PROJECT_NAME}} Deployment - Ralph Loop Instructions
+
+> **Template Version**: 1.0
+> **Replace all `{{PLACEHOLDER}}` values before use**
+> **Reference**: See MASTER_PROMPT_TEMPLATE.md for full documentation
+
+---
+
+## CRITICAL: READ FIRST
+
+You are running in autonomous ralph-loop mode to complete {{PROJECT_NAME}} deployment on {{DEVICE_NAME}}.
+Your goal is to iterate through Beads tasks until all are complete and verified.
+
+---
+
+## Platform Configuration
+
+- **Device**: {{DEVICE_NAME}}
+- **OS/Platform**: {{PLATFORM_INFO}}
+- **CUDA**: {{CUDA_VERSION}}
+- **Driver**: {{DRIVER_VERSION}}
+- **Python**: {{PYTHON_VERSION}}
+- **Primary Conda Environment**: {{MAIN_ENV}}
+
+---
+
+## CRITICAL: Package Index
+
+ALL CUDA packages MUST be installed using this index:
+
+```bash
+--index-url {{PYPI_MIRROR_URL}}
+```
+
+---
+
+## Available Pre-built Wheels
+
+| Package | Version | Command |
+|---------|---------|---------|
+| torch | {{TORCH_VERSION}} | `pip install torch=={{TORCH_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+| torchvision | {{TORCHVISION_VERSION}} | `pip install torchvision=={{TORCHVISION_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+| torchaudio | {{TORCHAUDIO_VERSION}} | `pip install torchaudio=={{TORCHAUDIO_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+| flash-attn | {{FLASH_ATTN_VERSION}} | `pip install flash-attn=={{FLASH_ATTN_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+| vllm | {{VLLM_VERSION}} | `pip install vllm=={{VLLM_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+| cupy | {{CUPY_VERSION}} | `pip install cupy=={{CUPY_VERSION}} --index-url {{PYPI_MIRROR_URL}}` |
+
+---
+
+## Development Stack Integration
+
+### Serena (Code Memory)
+
+```bash
+# Activate at start of each iteration
+mcp__serena__activate_project with project="{{PROJECT_PATH}}"
+mcp__serena__switch_modes with modes=["editing", "interactive"]
+
+# Read deployment patterns
+mcp__serena__read_memory with memory_file_name="{{PLATFORM_MEMORY_FILE}}"
+
+# Write new learnings
+mcp__serena__write_memory with memory_file_name="<filename>.md" content="..."
+```
+
+### Cipher (Conversation Memory)
+
+```bash
+# Query for past context
+mcp__cipher__ask_cipher with message="What was the issue with..."
+
+# Store new discoveries
+mcp__cipher__ask_cipher with message="Store: <new information>"
+```
+
+### Beads (Task Tracking)
+
+```bash
+# Check available tasks
+bd ready
+
+# Claim a task
+bd update <id> --status=in_progress
+
+# Complete a task
+bd close <id> --reason="Completed: <brief description>"
+
+# Check task details
+bd show <id>
+
+# View all open tasks
+bd list --status=open
+```
+
+---
+
+## Iteration Protocol
+
+FOR EACH ITERATION:
+
+### 1. Initialize
+
+```bash
+# Activate Serena
+mcp__serena__activate_project with project="{{PROJECT_PATH}}"
+
+# Read deployment memory
+mcp__serena__read_memory with memory_file_name="{{PLATFORM_MEMORY_FILE}}"
+```
+
+### 2. Get Next Task
+
+```bash
+bd ready
+```
+
+- If no ready tasks, check `bd blocked` for dependency issues
+- If all tasks closed, deployment is COMPLETE
+
+### 3. Claim Task
+
+```bash
+bd update <id> --status=in_progress
+```
+
+### 4. Execute Task
+
+- Run the appropriate commands based on task title
+- Always use `conda run -n {{MAIN_ENV}} pip install ...` for pip commands
+- Always use `--index-url {{PYPI_MIRROR_URL}}` for CUDA packages
+
+### 5. Verify Task
+
+- Run verification command for the task
+- If verification fails, try to fix and retry
+- If still failing, log to Cipher and progress.txt
+
+### 6. Complete Task
+
+```bash
+bd close <id> --reason="Completed: <verification result>"
+```
+
+### 7. Log Progress
+
+- Append any learnings to .ralph/progress.txt
+- Store important discoveries in Cipher
+
+---
+
+## Task-Specific Commands
+
+### PyTorch Installation
+
+```bash
+conda run -n {{MAIN_ENV}} pip install torch=={{TORCH_VERSION}} torchvision=={{TORCHVISION_VERSION}} torchaudio=={{TORCHAUDIO_VERSION}} \
+  --index-url {{PYPI_MIRROR_URL}}
+```
+
+Verification:
+
+```bash
+conda run -n {{MAIN_ENV}} python -c "import torch; assert torch.cuda.is_available(); print(f'CUDA {torch.version.cuda}')"
+```
+
+### Flash Attention Installation
+
+```bash
+conda run -n {{MAIN_ENV}} pip uninstall -y flash-attn
+conda run -n {{MAIN_ENV}} pip install flash-attn=={{FLASH_ATTN_VERSION}} \
+  --index-url {{PYPI_MIRROR_URL}}
+```
+
+Verification:
+
+```bash
+conda run -n {{MAIN_ENV}} python -c "from flash_attn import flash_attn_func; print('Flash Attention OK')"
+```
+
+### vLLM Installation
+
+```bash
+conda run -n {{MAIN_ENV}} pip install vllm=={{VLLM_VERSION}} \
+  --index-url {{PYPI_MIRROR_URL}}
+```
+
+Verification:
+
+```bash
+conda run -n {{MAIN_ENV}} python -c "from vllm import LLM; print('vLLM OK')"
+```
+
+### Core ML Packages Installation
+
+```bash
+# CuPy with CUDA {{CUDA_VERSION}}
+conda run -n {{MAIN_ENV}} pip install cupy=={{CUPY_VERSION}} \
+  --index-url {{PYPI_MIRROR_URL}}
+
+# Filtered requirements (exclude torch, flash-attn, vllm, cupy, nvidia-*)
+grep -v "^#" {{PROJECT_PATH}}/requirements.txt | \
+grep -v "^flash" | grep -v "^xformers" | \
+grep -v "^vllm" | grep -v "^torch" | grep -v "^cupy" | grep -v "^nvidia-" | \
+grep -v "^$" > /tmp/requirements-filtered.txt
+
+conda run -n {{MAIN_ENV}} pip install -r /tmp/requirements-filtered.txt
+```
+
+Verification:
+
+```bash
+conda run -n {{MAIN_ENV}} python -c "import transformers, accelerate, datasets, ray, wandb, hydra; import cupy; print('Core ML OK')"
+```
+
+### Project Packages Installation
+
+```bash
+cd {{PROJECT_PATH}}/{{SUBPACKAGE_1}} && conda run -n {{MAIN_ENV}} pip install -e .
+cd {{PROJECT_PATH}}/{{SUBPACKAGE_2}} && conda run -n {{MAIN_ENV}} pip install -e .
+```
+
+Verification:
+
+```bash
+conda run -n {{MAIN_ENV}} python -c "import {{PACKAGE_1}}, {{PACKAGE_2}}; print('Project packages OK')"
+```
+
+### Environment Variables Configuration
+
+```bash
+cat >> ~/.bashrc << 'EOF'
+
+# {{PROJECT_NAME}} Configuration
+export HF_HOME="{{HF_CACHE_PATH}}"
+export REPO_PATH="{{PROJECT_PATH}}"
+export INDEX_DIR="{{INDEX_DIR}}"
+export CKPT_DIR="{{CHECKPOINT_DIR}}"
+export CUDA_HOME="{{CUDA_HOME}}"
+
+# {{PROJECT_NAME}} Port Configuration
+export {{PROJECT_PREFIX}}_{{SERVICE_1}}_PORT={{PORT_1}}
+export {{PROJECT_PREFIX}}_{{SERVICE_2}}_PORT={{PORT_2}}
+export {{PROJECT_PREFIX}}_{{SERVICE_3}}_PORT={{PORT_3}}
+
+# Port conflict check function
+check_port() {
+  if ss -tlnp 2>/dev/null | grep -q ":$1 "; then
+    echo "Port $1 is IN USE"
+    return 1
+  else
+    echo "Port $1 is available"
+    return 0
+  fi
+}
+EOF
+source ~/.bashrc
+```
+
+Verification:
+
+```bash
+source ~/.bashrc && test -n "$CUDA_HOME" && test -d "$INDEX_DIR" && echo "Environment OK"
+```
+
+### Final Verification
+
+```bash
+conda run -n {{MAIN_ENV}} python << 'EOF'
+import torch
+assert torch.cuda.is_available(), "CUDA not available"
+print(f"PyTorch {torch.__version__} CUDA {torch.version.cuda}")
+
+from flash_attn import flash_attn_func
+print("Flash Attention OK")
+
+from vllm import LLM
+print("vLLM OK")
+
+import cupy as cp
+print(f"CuPy CUDA {cp.cuda.runtime.runtimeGetVersion()}")
+
+import transformers, accelerate, datasets, ray, wandb, hydra
+print("Core ML OK")
+
+import {{PACKAGE_1}}, {{PACKAGE_2}}
+print("Project packages OK")
+
+print("\n SUCCESS: All components verified!")
+EOF
+```
+
+---
+
+## Self-Healing Strategies
+
+If a step fails:
+
+### 1. Check Cipher for past solutions
+
+```bash
+mcp__cipher__ask_cipher with message="How was <error> resolved before?"
+```
+
+### 2. Check Serena for platform patterns
+
+```bash
+mcp__serena__read_memory with memory_file_name="{{PLATFORM_MEMORY_FILE}}"
+```
+
+### 3. Try alternative approach
+
+- For pip failures: try `--no-deps` or `--force-reinstall`
+- For import errors: check if dependency is missing
+- For version conflicts: check available versions at index URL
+
+### 4. Log and continue
+
+- Store the error in Cipher
+- Append to progress.txt
+- Move to next task if blocked
+
+---
+
+## Completion Criteria
+
+Deployment is COMPLETE when:
+
+- [ ] `bd list --status=open` returns no tasks
+- [ ] `bd stats` shows all tasks closed
+- [ ] PyTorch CUDA {{CUDA_VERSION}} available
+- [ ] Flash Attention functional
+- [ ] vLLM inference working
+- [ ] All project packages importable
+- [ ] Environment variables set
+
+When complete, update progress.txt with final status and summary.
+
+---
+
+## Placeholder Quick Reference
+
+| Placeholder | Your Value |
+|-------------|------------|
+| `{{PROJECT_NAME}}` | |
+| `{{PROJECT_PATH}}` | |
+| `{{PROJECT_PREFIX}}` | |
+| `{{DEVICE_NAME}}` | |
+| `{{PLATFORM_INFO}}` | |
+| `{{CUDA_VERSION}}` | |
+| `{{DRIVER_VERSION}}` | |
+| `{{PYTHON_VERSION}}` | |
+| `{{PYPI_MIRROR_URL}}` | |
+| `{{MAIN_ENV}}` | |
+| `{{TORCH_VERSION}}` | |
+| `{{FLASH_ATTN_VERSION}}` | |
+| `{{VLLM_VERSION}}` | |
+| `{{CUPY_VERSION}}` | |
+| `{{PLATFORM_MEMORY_FILE}}` | |

@@ -1,18 +1,122 @@
 # Ralph Orchestration Visual Documentation
 
 > **Purpose**: Comprehensive visual guide showing how Ralph orchestration works from start to finish.
-> **Version**: 1.0.0 | **Updated**: 2026-01-17
+> **Version**: 2.0.0 | **Updated**: 2026-01-17
 
 ---
 
 ## Table of Contents
 
+0. [v2.0 Dynamic Routing (NEW)](#0-v20-dynamic-routing-new)
 1. [Master Orchestration Flow](#1-master-orchestration-flow)
 2. [Phase Relationship Diagram](#2-phase-relationship-diagram)
 3. [Project Status Decision Tree](#3-project-status-decision-tree)
 4. [Memory Integration System](#4-memory-integration-system)
 5. [MCP Tool Priority Orchestration](#5-mcp-tool-priority-orchestration)
 6. [ASCII Art Diagrams](#6-ascii-art-diagrams-terminal-display)
+
+---
+
+## 0. v2.0 Dynamic Routing (NEW)
+
+The v2.0 orchestration uses `decide_next_phase()` for dynamic routing - any phase can route to any other phase based on current state analysis.
+
+```mermaid
+flowchart TD
+    subgraph ENTRY["GLOBAL CLI"]
+        CLI1["ralph-init PROJECT_PATH"] --> INIT["Initialize .ralph/"]
+        INIT --> CLI2["ralph-loop --orchestrator"]
+    end
+
+    CLI2 --> ASSESS
+
+    subgraph V2LOOP["v2.0 MASTER LOOP (No Hard Limits)"]
+        ASSESS["STEP 1: Assess State<br/>- Environment state<br/>- Code state (NotImpl)<br/>- Test state<br/>- Research score<br/>- Beads state"]
+
+        ASSESS --> DECIDE{"decide_next_phase()"}
+
+        DECIDE -->|"ENV_BROKEN"| P2["Phase 2-4<br/>Environment Rebuild"]
+        DECIDE -->|"BLOCKED_COUNT > 0"| HEAL["Self-Healing<br/>trigger_self_healing_enhanced()"]
+        DECIDE -->|"CODE_INCOMPLETE && RESEARCH > 20"| P13["Phase 13<br/>Academic Research"]
+        DECIDE -->|"CODE_INCOMPLETE"| P11["Phase 11<br/>Development"]
+        DECIDE -->|"TESTS_FAILING"| P14["Phase 14<br/>Fix Functionality"]
+        DECIDE -->|"READY_COUNT > 0"| P11
+        DECIDE -->|"All clear"| VERIFY["Verify Completion"]
+
+        P2 --> EXEC["STEP 2: Execute Phase"]
+        HEAL --> EXEC
+        P13 --> EXEC
+        P11 --> EXEC
+        P14 --> EXEC
+        VERIFY --> EXEC
+
+        EXEC --> CHECK["STEP 3: Check Criteria<br/>check_completion_criteria()"]
+
+        CHECK --> COMPLETE{CRITERIA_RESULT == 0?}
+        COMPLETE -->|Yes| DONE([" PROJECT COMPLETE"])
+
+        COMPLETE -->|No| SYNC["STEP 5: bd sync"]
+        SYNC --> STUCK{"stuck_for_too_long()?"}
+
+        STUCK -->|No| ASSESS
+        STUCK -->|Yes| ESCALATE["Escalation Level++"]
+
+        ESCALATE -->|"Level 1"| HEAL2["Aggressive Self-Healing"]
+        ESCALATE -->|"Level 2"| HUMAN["Human Intervention<br/>generate_stuck_report()"]
+        ESCALATE -->|"Level 3+"| RESET["Reset & Retry"]
+
+        HEAL2 --> ASSESS
+        HUMAN --> ASSESS
+        RESET --> ASSESS
+    end
+
+    style DONE fill:#2e7d32,color:#fff
+    style ASSESS fill:#1976d2,color:#fff
+    style DECIDE fill:#7b1fa2,color:#fff
+```
+
+### Key v2.0 Features
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    v2.0 ENHANCEMENT SUMMARY                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. DYNAMIC ROUTING (decide_next_phase)                                     │
+│     ├─ Multi-signal state analysis                                          │
+│     ├─ Any phase → Any phase routing                                        │
+│     └─ Priority-based selection matrix                                      │
+│                                                                             │
+│  2. GUARANTEED COMPLETION (No MAX_ITERATIONS)                               │
+│     ├─ while true loop (no hard cap)                                        │
+│     ├─ Stuck detection with escalation                                      │
+│     └─ Human-assisted mode for truly stuck states                           │
+│                                                                             │
+│  3. ENHANCED SELF-HEALING                                                   │
+│     ├─ Actually resolves blockers (not just creates tasks)                  │
+│     ├─ Import error → pip install                                           │
+│     ├─ Test failure → Phase 14                                              │
+│     └─ Memory query for similar past solutions                              │
+│                                                                             │
+│  4. BD SYNC EVERY ITERATION                                                 │
+│     └─ Beads state persisted continuously                                   │
+│                                                                             │
+│  5. CONDITIONAL MCP SELECTION (select_mcp_tools_for_error)                  │
+│     ├─ ImportError → serena, code-context                                   │
+│     ├─ RuntimeError → sequential-thinking, code-reasoning                   │
+│     ├─ research_needed → arxiv, semantic-scholar, perplexity                │
+│     └─ external_api → tavily, linkup, playwright                            │
+│                                                                             │
+│  6. RESEARCH FEEDBACK LOOP                                                  │
+│     ├─ Confidence calculation (0-100)                                       │
+│     ├─ Gap identification (missing aspects)                                 │
+│     └─ New query generation until threshold met                             │
+│                                                                             │
+│  7. CROSS-ITERATION AGGREGATION                                             │
+│     └─ Merges findings from previous sessions                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
