@@ -722,7 +722,299 @@ bd create --title="Related: {{RELATED_WORK}}" --type=task
 bd dep add {{RELATED_ID}} {{CURRENT_ID}} --type=discovered-from
 ```
 
-### 7.3 MCP Tool Integration Patterns
+### 7.3 Enhanced Memory Layer (claude-mem + serena + cipher)
+
+Ralph-loop uses a three-tier memory system for cross-session context retention:
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# PHASE 7.3: ENHANCED MEMORY LAYER
+# Uses claude-mem 3-layer workflow + serena + cipher for cross-session memory
+# ═══════════════════════════════════════════════════════════════════════════
+
+### 7.3.1 Memory Initialization
+
+initialize_memory_layer() {
+  PROJECT_PATH="$1"
+  PROJECT_NAME="$2"
+
+  echo "=== Initializing Enhanced Memory Layer ==="
+
+  # Set context for all memory systems
+  export MEMORY_PROJECT="$PROJECT_NAME"
+  export MEMORY_CONTEXT="ralph-loop-orchestration"
+
+  # Check for existing memories from previous sessions
+  check_existing_memories
+}
+
+check_existing_memories() {
+  echo ">>> Checking for existing memories..."
+
+  # 1. Serena memories (project-specific)
+  # MCP call: mcp__serena__list_memories
+  # Returns list of saved memory files
+
+  # 2. Claude-mem search for project context
+  # MCP call: mcp__plugin_claude-mem_mcp-search__search
+  #   query: "$MEMORY_PROJECT deployment"
+  #   project: "$MEMORY_PROJECT"
+
+  # 3. Cipher recall
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "Recall previous context for project: $MEMORY_PROJECT"
+}
+
+### 7.3.2 Claude-Mem 3-Layer Retrieval
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CRITICAL: Always use 3-layer workflow for efficient token usage
+# Layer 1: Search → Get index with IDs (~50-100 tokens/result)
+# Layer 2: Timeline → Get context around interesting results
+# Layer 3: Get Observations → Fetch full details ONLY for filtered IDs
+# NEVER fetch full details without filtering first. 10x token savings.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# LAYER 1: Search - Get index with IDs
+search_memory() {
+  local query="$1"
+  local memory_type="${2:-all}"  # all, decision, error, pattern, solution, research
+
+  echo "=== Memory Search: $query ==="
+
+  # MCP call: mcp__plugin_claude-mem_mcp-search__search
+  # Parameters:
+  #   query: "$query"
+  #   project: "$MEMORY_PROJECT"
+  #   type: "$memory_type"  # Optional filter
+  #   limit: 15
+  #   orderBy: "relevance"  # or "created_at"
+  #
+  # Returns: Index with observation IDs (~50-100 tokens/result)
+  # Format: { id, title, created_at, type, snippet }
+}
+
+# LAYER 2: Timeline - Get context around results
+get_memory_timeline() {
+  local anchor_id="$1"
+  local depth_before="${2:-3}"
+  local depth_after="${3:-5}"
+
+  echo "=== Memory Timeline: anchor=$anchor_id ==="
+
+  # MCP call: mcp__plugin_claude-mem_mcp-search__timeline
+  # Parameters:
+  #   anchor: $anchor_id  # Observation ID from Layer 1
+  #   depth_before: $depth_before
+  #   depth_after: $depth_after
+  #   project: "$MEMORY_PROJECT"
+  #
+  # Returns: Contextual observations around the anchor
+  # Shows what happened before/after for context
+}
+
+# LAYER 3: Get Observations - Fetch full details for filtered IDs
+get_memory_observations() {
+  local ids="$1"  # JSON array of IDs: [123, 456, 789]
+
+  echo "=== Fetching Full Memory Observations ==="
+
+  # MCP call: mcp__plugin_claude-mem_mcp-search__get_observations
+  # Parameters:
+  #   ids: $ids  # Array of observation IDs (REQUIRED)
+  #   project: "$MEMORY_PROJECT"
+  #   orderBy: "created_at"
+  #   limit: 20
+  #
+  # Returns: Full observation details for specified IDs only
+}
+
+### 7.3.3 Memory Storage Strategy
+
+store_to_memory() {
+  local memory_type="$1"  # decision, error, pattern, solution, research
+  local content="$2"
+  local tags="$3"
+
+  echo "=== Storing to Memory: $memory_type ==="
+
+  # Store in ALL memory systems for redundancy and different retrieval patterns
+
+  # 1. Serena Memory (file-based, project-specific, permanent)
+  # Best for: Structured knowledge, deployment patterns, solutions
+  # MCP call: mcp__serena__write_memory
+  #   memory_file_name: "${MEMORY_PROJECT}_${memory_type}_$(date +%Y%m%d).md"
+  #   content: |
+  #     # ${memory_type}: $(date)
+  #     Tags: $tags
+  #
+  #     $content
+  #
+  #     ---
+  #     Project: $MEMORY_PROJECT
+  #     Context: $MEMORY_CONTEXT
+
+  # 2. Cipher Memory (conversation context, associative)
+  # Best for: Conversational recall, quick lookups
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "Store ${memory_type} for ${MEMORY_PROJECT}: $content"
+
+  # 3. Claude-mem (cross-session observations, automatic)
+  # Observations are auto-captured during conversation
+  # Tag important ones explicitly for retrieval by using descriptive language
+  # that will match future searches
+}
+
+### 7.3.4 Memory Retrieval Orchestration
+
+retrieve_relevant_memories() {
+  local context="$1"  # e.g., "implementing authentication", "fixing import error"
+
+  echo "=== Retrieving Relevant Memories ==="
+  echo "Context: $context"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 1: Search all memory systems in parallel
+  # ───────────────────────────────────────────────────────────────────────
+
+  # 1a. Serena memories (project patterns, solutions)
+  # MCP call: mcp__serena__list_memories
+  # Then filter by name relevance, read relevant ones:
+  # MCP call: mcp__serena__read_memory
+  #   memory_file_name: "<relevant_memory>.md"
+
+  # 1b. Claude-mem search (cross-session, 3-layer)
+  # Layer 1 only first:
+  # MCP call: mcp__plugin_claude-mem_mcp-search__search
+  #   query: "$context"
+  #   project: "$MEMORY_PROJECT"
+  #   limit: 15
+  # Returns IDs
+
+  # 1c. Cipher query (conversational context)
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "Recall any relevant context for: $context"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 2: Filter and rank by relevance
+  # ───────────────────────────────────────────────────────────────────────
+  # From claude-mem results:
+  # - Exact match in title/content: weight 10
+  # - Partial match (same topic): weight 5
+  # - Related topic (same project): weight 2
+  #
+  # Select top 5-10 IDs for full retrieval
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 3: Get full details for filtered results
+  # ───────────────────────────────────────────────────────────────────────
+  # Layer 2 (optional): get_memory_timeline for context if needed
+  # Layer 3: get_memory_observations for full details
+  # MCP call: mcp__plugin_claude-mem_mcp-search__get_observations
+  #   ids: [filtered_ids]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 4: Synthesize into actionable context
+  # ───────────────────────────────────────────────────────────────────────
+  # Combine results from all three systems
+  # Deduplicate overlapping information
+  # Return structured context for current task
+}
+
+### 7.3.5 Pre-Compaction Persistence
+
+persist_before_compaction() {
+  echo "=== Pre-Compaction Memory Persistence ==="
+  echo "Critical: Saving session learnings before context loss"
+
+  # Get current session summary
+  local session_date=$(date +%Y%m%d_%H%M%S)
+  local session_file="session_${session_date}.md"
+
+  # 1. Save comprehensive session summary to Serena memory (permanent file)
+  # MCP call: mcp__serena__write_memory
+  #   memory_file_name: "$session_file"
+  #   content: |
+  #     # Session Summary: $session_date
+  #     Project: $MEMORY_PROJECT
+  #
+  #     ## Decisions Made
+  #     [List key decisions from this session]
+  #
+  #     ## Errors Encountered & Solutions
+  #     [List errors and how they were resolved]
+  #
+  #     ## Patterns Discovered
+  #     [List reusable patterns found]
+  #
+  #     ## Solutions Applied
+  #     [List solutions that worked]
+  #
+  #     ## Tasks Completed
+  #     [List bd tasks closed this session]
+  #
+  #     ## Pending Work
+  #     [List what remains to be done]
+
+  # 2. Store key insights via Cipher for quick recall
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "Store session summary for $MEMORY_PROJECT:
+  #     Key decisions: [summary]
+  #     Important solutions: [summary]
+  #     Current status: [status]"
+
+  # 3. Update Beads with session notes for task context
+  # bd update <active_task_id> --notes="Session $session_date learnings: ..."
+
+  # 4. Sync Beads to git
+  # bd sync
+}
+
+### 7.3.6 Post-Compaction Recovery
+
+recover_after_compaction() {
+  echo "=== Post-Compaction Memory Recovery ==="
+  echo "Restoring context from persistent storage"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 1: Read most recent Serena session memories
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__serena__list_memories
+  # Filter for session_*.md files
+  # Read most recent 2-3 session files:
+  # MCP call: mcp__serena__read_memory
+  #   memory_file_name: "session_YYYYMMDD_HHMMSS.md"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 2: Query Cipher for context
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "What was the context of the previous session for $MEMORY_PROJECT?
+  #     What decisions were made? What was the current status?"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 3: Search claude-mem for recent observations (3-layer)
+  # ───────────────────────────────────────────────────────────────────────
+  # Layer 1: search_memory "session $MEMORY_PROJECT"
+  # Layer 3: get_memory_observations for relevant IDs
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 4: Check Beads for task state
+  # ───────────────────────────────────────────────────────────────────────
+  # bd list --status=in_progress  # What was being worked on
+  # bd ready                       # What's available to work on
+  # bd blocked                     # What's waiting on dependencies
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 5: Reconstruct working context
+  # ───────────────────────────────────────────────────────────────────────
+  # Synthesize information from all sources
+  # Identify current state and next actions
+  # Resume work from where it left off
+}
+```
+
+### 7.4 MCP Tool Integration Patterns
 
 #### Memory Layer (serena + cipher + mcp-search)
 
@@ -792,6 +1084,129 @@ mcp__github-mcp__list_commits with owner="{{ORG}}" repo="{{REPO}}" sha="main"
 ---
 
 ## PHASE 8: Ralph-Loop Iteration Protocol
+
+### 8.0 Master Orchestration Integration
+
+Before starting the iteration cycle, Ralph-Loop now routes through the Master Orchestration
+Loop (Phase 15) for intelligent project handling. This ensures projects are properly
+assessed and routed to the correct phase based on their status.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MASTER ORCHESTRATION ROUTING                             │
+│                    (Entry Point for All Projects)                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 0: PROJECT ASSESSMENT                                           │   │
+│  │ ├─ assess_project_completeness()                                     │   │
+│  │ ├─ Returns: PROJECT_STATUS (5 types)                                 │   │
+│  │ │   ├─ complete              → Standard deployment (8.1)             │   │
+│  │ │   ├─ functionality_problems → Phase 14 first                       │   │
+│  │ │   ├─ incomplete_research   → Phase 13, then Phase 11               │   │
+│  │ │   ├─ incomplete_critical   → Phase 11 (development)                │   │
+│  │ │   └─ incomplete_minor      → Phase 11 (development)                │   │
+│  │ └─ Returns: COMPLEXITY_SCORE (weighted)                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 0.1: ROUTE TO APPROPRIATE HANDLER                               │   │
+│  │                                                                       │   │
+│  │  IF PROJECT_STATUS != "complete":                                     │   │
+│  │     run_master_orchestration()  ← Phase 15                           │   │
+│  │     (Iterates until all criteria met)                                 │   │
+│  │  ELSE:                                                                │   │
+│  │     Continue to standard deployment cycle (8.1)                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 0.2: POST-ORCHESTRATION VERIFICATION                            │   │
+│  │ ├─ Re-assess project after Phase 15 completes                        │   │
+│  │ ├─ Verify PROJECT_STATUS == "complete"                               │   │
+│  │ ├─ IF still incomplete → Alert user, create manual intervention task │   │
+│  │ └─ IF complete → Proceed to standard deployment (8.1)                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# RALPH-LOOP ENTRY POINT WITH MASTER ORCHESTRATION
+# Routes projects through appropriate phases before deployment
+# ═══════════════════════════════════════════════════════════════════════════
+
+ralph_loop_entry() {
+  PROJECT_PATH="${1:-$(pwd)}"
+  PROJECT_NAME="${2:-$(basename "$PROJECT_PATH")}"
+
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║           RALPH-LOOP ENTRY POINT                                          ║"
+  echo "║           Project: $PROJECT_NAME"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # STEP 0: Initialize memory layer
+  # ─────────────────────────────────────────────────────────────────────────
+  echo ">>> Initializing memory layer..."
+  initialize_memory_layer "$PROJECT_PATH" "$PROJECT_NAME"
+
+  # Recover any previous session context
+  recover_after_compaction
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # STEP 0.1: Assess project completeness
+  # ─────────────────────────────────────────────────────────────────────────
+  echo ">>> Assessing project completeness..."
+  assess_project_completeness "$PROJECT_PATH"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # STEP 0.2: Route based on project status
+  # ─────────────────────────────────────────────────────────────────────────
+  echo ""
+  echo ">>> Routing based on project status: $PROJECT_STATUS"
+
+  case "$PROJECT_STATUS" in
+    "complete")
+      echo "Project is complete. Proceeding to standard deployment cycle..."
+      # Continue to 8.1 iteration cycle
+      return 0
+      ;;
+
+    "functionality_problems"|"incomplete_research"|"incomplete_critical"|"incomplete_minor")
+      echo "Project requires orchestration. Starting master orchestration loop..."
+      echo ""
+      run_master_orchestration "$PROJECT_PATH" "$PROJECT_NAME"
+      ORCHESTRATION_RESULT=$?
+
+      if [ $ORCHESTRATION_RESULT -eq 0 ]; then
+        echo "Master orchestration complete. Proceeding to standard deployment..."
+        return 0
+      else
+        echo "Master orchestration did not complete. Manual intervention required."
+        bd create \
+          --title="Manual intervention required: $PROJECT_NAME" \
+          --type=task \
+          --priority=0 \
+          --description="Master orchestration loop did not complete successfully.
+Status: $PROJECT_STATUS
+Complexity Score: $COMPLEXITY_SCORE
+
+Manual review and intervention required before deployment."
+        return 1
+      fi
+      ;;
+
+    *)
+      echo "ERROR: Unknown project status: $PROJECT_STATUS"
+      return 1
+      ;;
+  esac
+}
+
+# Export for use
+export -f ralph_loop_entry
+```
 
 ### 8.1 Complete Iteration Cycle
 
@@ -1716,14 +2131,27 @@ Determine if project is complete (ready for deployment) or incomplete (needs dev
 # Determines if project needs deployment only or development + deployment
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ENHANCED PROJECT COMPLETENESS ASSESSMENT
+# Handles 5 project types with weighted scoring
+# Integrates with Phase 13 (Research) and Phase 14 (Functionality Fix)
+# ═══════════════════════════════════════════════════════════════════════════
+
 assess_project_completeness() {
   PROJECT_PATH="${1:-$(pwd)}"
 
-  echo "=== Assessing Project Completeness ==="
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║           ENHANCED PROJECT COMPLETENESS ASSESSMENT                        ║"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
   echo "Project: $PROJECT_PATH"
   echo ""
 
-  # Count incomplete indicators
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE A: Static Code Analysis
+  # ─────────────────────────────────────────────────────────────────────────
+
+  echo ">>> PHASE A: Static Code Analysis..."
+
   NOT_IMPL=$(grep -rn "NotImplementedError\|raise NotImplemented" "$PROJECT_PATH" \
     --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l)
 
@@ -1738,53 +2166,157 @@ assess_project_completeness() {
   EMPTY_FUNCS=$(grep -Pzo "def \w+\([^)]*\):\s*\n\s*(pass|\.\.\.)\s*\n" "$PROJECT_PATH" \
     --include="*.py" 2>/dev/null | grep -c "def " || echo "0")
 
-  TOTAL_INCOMPLETE=$((NOT_IMPL + TODOS + STUBS + EMPTY_FUNCS))
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE B: Research Requirement Detection
+  # ─────────────────────────────────────────────────────────────────────────
 
-  echo "┌─────────────────────────────────────────┐"
-  echo "│ INCOMPLETE INDICATOR COUNTS             │"
-  echo "├─────────────────────────────────────────┤"
-  echo "│ NotImplementedError:     $NOT_IMPL"
-  echo "│ TODO/FIXME/XXX markers:  $TODOS"
-  echo "│ Stub implementations:    $STUBS"
-  echo "│ Empty function bodies:   $EMPTY_FUNCS"
-  echo "├─────────────────────────────────────────┤"
-  echo "│ TOTAL INCOMPLETE:        $TOTAL_INCOMPLETE"
-  echo "└─────────────────────────────────────────┘"
+  echo ">>> PHASE B: Research Requirement Detection..."
+  detect_research_requirements "$PROJECT_PATH"
+  # Sets: RESEARCH_SCORE, RESEARCH_INDICATORS
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE C: Functionality Problem Detection
+  # ─────────────────────────────────────────────────────────────────────────
+
+  echo ">>> PHASE C: Functionality Problem Detection..."
+  detect_functionality_problems "$PROJECT_PATH"
+  # Sets: FUNCTIONALITY_SCORE, FUNCTIONALITY_ISSUES
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE D: Weighted Complexity Scoring
+  # ─────────────────────────────────────────────────────────────────────────
+
+  echo ">>> PHASE D: Weighted Complexity Scoring..."
+
+  # Weight factors (higher = more critical)
+  WEIGHT_NOT_IMPL=10      # Critical: unimplemented functions
+  WEIGHT_EMPTY_FUNC=8     # High: empty function bodies
+  WEIGHT_IMPORT_ERR=7     # High: can't even import
+  WEIGHT_TEST_FAIL=6      # Medium-high: tests broken
+  WEIGHT_RESEARCH=5       # Medium: needs research
+  WEIGHT_TODO=2           # Low: known work items
+  WEIGHT_STUB=1           # Low: placeholders
+
+  COMPLEXITY_SCORE=$((
+    NOT_IMPL * WEIGHT_NOT_IMPL +
+    EMPTY_FUNCS * WEIGHT_EMPTY_FUNC +
+    FUNCTIONALITY_SCORE +
+    RESEARCH_SCORE / 4 +
+    TODOS * WEIGHT_TODO +
+    STUBS * WEIGHT_STUB
+  ))
+
   echo ""
+  echo "┌─────────────────────────────────────────────────────────────────┐"
+  echo "│ COMPLEXITY ANALYSIS                                             │"
+  echo "├─────────────────────────────────────────────────────────────────┤"
+  echo "│ NotImplementedError:     $NOT_IMPL (weight: $WEIGHT_NOT_IMPL)"
+  echo "│ Empty functions:         $EMPTY_FUNCS (weight: $WEIGHT_EMPTY_FUNC)"
+  echo "│ Functionality score:     $FUNCTIONALITY_SCORE"
+  echo "│ Research score:          $RESEARCH_SCORE"
+  echo "│ TODOs:                   $TODOS (weight: $WEIGHT_TODO)"
+  echo "│ Stubs:                   $STUBS (weight: $WEIGHT_STUB)"
+  echo "├─────────────────────────────────────────────────────────────────┤"
+  echo "│ TOTAL COMPLEXITY SCORE:  $COMPLEXITY_SCORE"
+  echo "└─────────────────────────────────────────────────────────────────┘"
 
-  # Decision logic
-  if [ "$TOTAL_INCOMPLETE" -eq 0 ]; then
-    echo "PROJECT STATUS: ✓ COMPLETE"
-    echo "Action: Standard deployment (Phases 0-9)"
-    export PROJECT_STATUS="complete"
+  # ─────────────────────────────────────────────────────────────────────────
+  # PHASE E: Classification Decision (5 project types)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  echo ""
+  echo ">>> PHASE E: Project Classification..."
+
+  if [ "$COMPLEXITY_SCORE" -eq 0 ]; then
+    PROJECT_STATUS="complete"
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ PROJECT STATUS: ✓ COMPLETE                                               ║"
+    echo "║ Action: Standard deployment (Phases 0-9)                                 ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
     export NEEDS_DEVELOPMENT="false"
-  elif [ "$NOT_IMPL" -gt 0 ] || [ "$EMPTY_FUNCS" -gt 0 ]; then
-    echo "PROJECT STATUS: ✗ INCOMPLETE (Critical)"
-    echo "Reason: Has $NOT_IMPL unimplemented functions, $EMPTY_FUNCS empty bodies"
-    echo "Action: Development completion REQUIRED (Phase 11)"
-    export PROJECT_STATUS="incomplete_critical"
+
+  elif [ "$FUNCTIONALITY_SCORE" -gt 20 ]; then
+    PROJECT_STATUS="functionality_problems"
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ PROJECT STATUS: ⚠ FUNCTIONALITY PROBLEMS                                 ║"
+    echo "║ Issues: ${FUNCTIONALITY_ISSUES[*]}"
+    echo "║ Action: Fix functionality first (Phase 14), then continue                ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
     export NEEDS_DEVELOPMENT="true"
+    export NEEDS_FUNCTIONALITY_FIX="true"
+
+  elif [ "$RESEARCH_SCORE" -ge 20 ] && [ "$NOT_IMPL" -gt 0 ]; then
+    PROJECT_STATUS="incomplete_research"
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ PROJECT STATUS: ✗ INCOMPLETE - Requires Research                         ║"
+    echo "║ Research indicators: ${RESEARCH_INDICATORS[*]}"
+    echo "║ Action: Research phase (Phase 13), then development (Phase 11)           ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+    export NEEDS_DEVELOPMENT="true"
+    export NEEDS_RESEARCH="true"
+
+  elif [ "$NOT_IMPL" -gt 0 ] || [ "$EMPTY_FUNCS" -gt 0 ]; then
+    PROJECT_STATUS="incomplete_critical"
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ PROJECT STATUS: ✗ INCOMPLETE - Critical                                  ║"
+    echo "║ Reason: Has $NOT_IMPL unimplemented functions, $EMPTY_FUNCS empty bodies ║"
+    echo "║ Action: Development completion required (Phase 11)                       ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+    export NEEDS_DEVELOPMENT="true"
+
   else
-    echo "PROJECT STATUS: ⚠ INCOMPLETE (Minor)"
-    echo "Reason: Has $TODOS TODOs, $STUBS stubs"
-    echo "Action: Development completion RECOMMENDED (Phase 11)"
-    export PROJECT_STATUS="incomplete_minor"
+    PROJECT_STATUS="incomplete_minor"
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ PROJECT STATUS: ⚠ INCOMPLETE - Minor                                     ║"
+    echo "║ Reason: Has $TODOS TODOs, $STUBS stubs                                   ║"
+    echo "║ Action: Address TODOs/stubs (Phase 11)                                   ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
     export NEEDS_DEVELOPMENT="true"
   fi
 
-  # Create Beads summary task if incomplete
+  export PROJECT_STATUS
+  export COMPLEXITY_SCORE
+
+  # Create Beads summary task if not complete
   if [ "$PROJECT_STATUS" != "complete" ]; then
     echo ""
-    echo "Creating Beads epic for development completion..."
+    echo "Creating Beads epic for project completion..."
     bd create \
-      --title="Complete project development ($TOTAL_INCOMPLETE gaps)" \
+      --title="Project Assessment: $PROJECT_STATUS (score: $COMPLEXITY_SCORE)" \
       --type=epic \
       --priority=1 \
-      --description="Project has $NOT_IMPL unimplemented functions, $TODOS TODOs, $STUBS stubs, $EMPTY_FUNCS empty bodies.
+      --description="Enhanced Assessment Results:
 
-Development completion required before deployment.
+Static Analysis:
+- NotImplementedError: $NOT_IMPL
+- Empty functions: $EMPTY_FUNCS
+- TODOs: $TODOS
+- Stubs: $STUBS
 
-Status: $PROJECT_STATUS
+Functional Analysis:
+- Functionality Score: $FUNCTIONALITY_SCORE
+- Issues: ${FUNCTIONALITY_ISSUES[*]:-None}
+
+Research Analysis:
+- Research Score: $RESEARCH_SCORE
+- Indicators: ${RESEARCH_INDICATORS[*]:-None}
+
+TOTAL COMPLEXITY SCORE: $COMPLEXITY_SCORE
+
+Recommended Action Path:
+$(case "$PROJECT_STATUS" in
+  "functionality_problems") echo "1. Phase 14: Fix functionality problems
+2. Re-assess
+3. Continue to appropriate phase";;
+  "incomplete_research") echo "1. Phase 13: Research required technologies
+2. Phase 11: Implement based on research
+3. Phase 0-9: Deploy";;
+  "incomplete_critical") echo "1. Phase 11: Critical development completion
+2. Phase 0-9: Deploy";;
+  "incomplete_minor") echo "1. Phase 11: Address TODOs and stubs
+2. Phase 0-9: Deploy";;
+esac)
+
 Assessed: $(date)"
   fi
 
@@ -2884,6 +3416,969 @@ run_complete_verification() {
     echo "═══════════════════════════════════════════════════════════════════════════"
     return 1
   fi
+}
+```
+
+---
+
+## PHASE 13: Academic Research Integration
+
+### 13.0 Overview
+
+For cutting-edge development requiring research paper guidance:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ACADEMIC RESEARCH INTEGRATION                             │
+│                    (Phase 13: For research-driven development)              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ACADEMIC RESEARCH MCP SERVERS:                                            │
+│  ├─ arxiv-advanced        → Primary: Advanced arXiv search, paper download │
+│  ├─ semantic-scholar      → Secondary: Citation graphs, impact analysis    │
+│  ├─ research-arxiv        → Fallback: Basic arXiv queries                  │
+│  └─ paper-search          → Supplementary: Multi-platform coverage         │
+│                                                                             │
+│  USAGE PRIORITY:                                                           │
+│  1. arxiv-advanced   → Best for ML/AI cutting-edge (category filters)     │
+│  2. semantic-scholar → Best for citation traversal (find implementations) │
+│  3. research-arxiv   → Simple queries, quick lookups                       │
+│  4. paper-search     → Broader coverage (medical, biology, etc.)          │
+│                                                                             │
+│  WORKFLOW:                                                                  │
+│  ├─ 13.1: Detect research requirements                                     │
+│  ├─ 13.2: Multi-source academic paper search                               │
+│  ├─ 13.3: Paper analysis & download                                        │
+│  ├─ 13.4: Research-derived task creation                                   │
+│  └─ 13.5: Advanced research synthesis (iterative)                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.1 Research Requirement Detection
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.1: DETECT RESEARCH REQUIREMENTS
+# Determines if project needs cutting-edge research guidance
+# ═══════════════════════════════════════════════════════════════════════════
+
+detect_research_requirements() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Detecting Research Requirements ==="
+  echo "Project: $PROJECT_PATH"
+
+  RESEARCH_INDICATORS=()
+  RESEARCH_SCORE=0
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Check for cutting-edge technology markers
+  # ───────────────────────────────────────────────────────────────────────
+  CUTTING_EDGE_PATTERNS=(
+    "transformer"
+    "attention mechanism"
+    "diffusion model"
+    "reinforcement learning"
+    "neural network architecture"
+    "state-of-the-art"
+    "SOTA"
+    "novel approach"
+    "research paper"
+    "arxiv"
+    "IEEE"
+    "ACM"
+    "multi-agent"
+    "large language model"
+    "LLM"
+  )
+
+  for pattern in "${CUTTING_EDGE_PATTERNS[@]}"; do
+    count=$(grep -ri "$pattern" "$PROJECT_PATH" --include="*.py" --include="*.md" 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+      RESEARCH_INDICATORS+=("$pattern: $count occurrences")
+      RESEARCH_SCORE=$((RESEARCH_SCORE + count * 3))
+    fi
+  done
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Check for academic citations in code/docs
+  # ───────────────────────────────────────────────────────────────────────
+  CITATIONS=$(grep -rE "\[[0-9]+\]|\(et al\.,? [0-9]{4}\)|arXiv:[0-9]+\.[0-9]+" "$PROJECT_PATH" 2>/dev/null | wc -l)
+  RESEARCH_SCORE=$((RESEARCH_SCORE + CITATIONS * 5))
+  [ "$CITATIONS" -gt 0 ] && RESEARCH_INDICATORS+=("Academic citations: $CITATIONS")
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Check requirements.txt for research libraries
+  # ───────────────────────────────────────────────────────────────────────
+  RESEARCH_LIBS=("transformers" "torch" "tensorflow" "jax" "flax" "einops" "timm" "huggingface" "accelerate" "peft" "bitsandbytes")
+  if [ -f "$PROJECT_PATH/requirements.txt" ]; then
+    for lib in "${RESEARCH_LIBS[@]}"; do
+      if grep -qi "$lib" "$PROJECT_PATH/requirements.txt"; then
+        RESEARCH_INDICATORS+=("Research library: $lib")
+        RESEARCH_SCORE=$((RESEARCH_SCORE + 5))
+      fi
+    done
+  fi
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Check for NotImplementedError with research-related messages
+  # ───────────────────────────────────────────────────────────────────────
+  RESEARCH_NOTIMPL=$(grep -rn "NotImplementedError.*research\|TODO.*paper\|FIXME.*implementation\|TODO.*arxiv" "$PROJECT_PATH" --include="*.py" 2>/dev/null | wc -l)
+  RESEARCH_SCORE=$((RESEARCH_SCORE + RESEARCH_NOTIMPL * 10))
+  [ "$RESEARCH_NOTIMPL" -gt 0 ] && RESEARCH_INDICATORS+=("Research-related TODOs: $RESEARCH_NOTIMPL")
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Output results
+  # ───────────────────────────────────────────────────────────────────────
+  echo ""
+  echo "┌─────────────────────────────────────────┐"
+  echo "│ RESEARCH REQUIREMENT ANALYSIS           │"
+  echo "├─────────────────────────────────────────┤"
+  echo "│ Research Score: $RESEARCH_SCORE"
+  echo "│ Indicators:"
+  for indicator in "${RESEARCH_INDICATORS[@]}"; do
+    echo "│   - $indicator"
+  done
+  echo "└─────────────────────────────────────────┘"
+
+  export RESEARCH_SCORE
+  export RESEARCH_INDICATORS
+
+  if [ "$RESEARCH_SCORE" -ge 20 ]; then
+    echo "RESEARCH REQUIRED: High"
+    export RESEARCH_LEVEL="high"
+    return 0
+  elif [ "$RESEARCH_SCORE" -ge 10 ]; then
+    echo "RESEARCH REQUIRED: Medium"
+    export RESEARCH_LEVEL="medium"
+    return 1
+  else
+    echo "RESEARCH REQUIRED: Low"
+    export RESEARCH_LEVEL="low"
+    return 2
+  fi
+}
+```
+
+### 13.2 Academic Paper Search (Multi-Source)
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.2: ACADEMIC PAPER SEARCH
+# Search across multiple academic MCP servers
+# ═══════════════════════════════════════════════════════════════════════════
+
+search_academic_papers() {
+  local query="$1"
+  local max_results="${2:-10}"
+
+  echo "=== Searching Academic Papers: $query ==="
+
+  # ───────────────────────────────────────────────────────────────────────
+  # PRIMARY: arXiv Advanced (best for cutting-edge ML/AI research)
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__arxiv-advanced__search_papers
+  # Parameters:
+  #   query: "$query" (use quoted phrases: "transformer architecture")
+  #   categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.MA"]
+  #   max_results: $max_results
+  #   sort_by: "relevance"  # or "date" for newest
+  #   date_from: "2023-01-01"  # for recent research
+  #
+  # Advanced query syntax:
+  #   - ti:"exact title phrase" - search titles only
+  #   - au:"author name" - search by author
+  #   - abs:"keyword" - search abstracts only
+  #   - "term1" OR "term2" - boolean OR
+  #   - "term1" ANDNOT "survey" - exclude terms
+  #
+  # Category codes:
+  #   - cs.AI: Artificial Intelligence
+  #   - cs.LG: Machine Learning
+  #   - cs.CL: Computation and Language (NLP)
+  #   - cs.CV: Computer Vision
+  #   - cs.RO: Robotics
+  #   - cs.MA: Multi-Agent Systems
+
+  # ───────────────────────────────────────────────────────────────────────
+  # SECONDARY: Semantic Scholar Graph API (citation analysis)
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__research-semantic-scholar__search_semantic_scholar
+  # Parameters:
+  #   query: "$query"
+  #   maxResults: $max_results
+  #   startYear: 2020  # Optional year filter
+  #
+  # Returns: Papers with citation counts, authors, venues, impact scores
+
+  # ───────────────────────────────────────────────────────────────────────
+  # TERTIARY: Basic arXiv (simpler queries, fallback)
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__research-arxiv__search_arxiv
+  # Parameters:
+  #   query: "$query"
+  #   maxResults: $max_results
+  #   sortBy: "relevance"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # SUPPLEMENTARY: Paper Search (multi-platform)
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__paper-search__search_papers
+  # Parameters:
+  #   query: "$query"
+  #   platform: "all"  # or specific: "arxiv", "semantic", "crossref", "pubmed"
+  #   maxResults: $max_results
+  #
+  # Best for: Broader coverage, medical/biology research
+
+  # Aggregate and deduplicate results
+  # Rank by: citation count, recency, relevance to implementation
+}
+
+traverse_citation_graph() {
+  local seed_paper_id="$1"
+  local direction="${2:-both}"  # citing, cited_by, both
+
+  echo "=== Traversing Citation Graph from: $seed_paper_id ==="
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Find papers that CITE the seed paper (implementations, improvements)
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__research-semantic-scholar__get_paper_citations
+  # Parameters:
+  #   paperId: "$seed_paper_id"
+  #   maxResults: 20
+  #
+  # Returns: Papers that cite this paper
+  # Look for:
+  #   - "implementation" in title/abstract → likely has code
+  #   - GitHub links mentioned → implementation available
+  #   - Recent papers → more modern implementations
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Get full paper details
+  # ───────────────────────────────────────────────────────────────────────
+  # MCP call: mcp__research-semantic-scholar__get_semantic_scholar_paper
+  # Parameters:
+  #   identifier: "$seed_paper_id"
+  #
+  # Returns: Full metadata, citation count, abstract, authors, venue
+}
+```
+
+### 13.3 Paper Analysis and Download
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.3: PAPER ANALYSIS AND DOWNLOAD
+# Download papers and extract implementation-relevant information
+# ═══════════════════════════════════════════════════════════════════════════
+
+analyze_paper() {
+  local paper_id="$1"
+  local paper_source="${2:-arxiv}"
+
+  echo "=== Analyzing Paper: $paper_id ==="
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 1: Get paper metadata
+  # ───────────────────────────────────────────────────────────────────────
+
+  if [ "$paper_source" = "arxiv" ]; then
+    # Get basic metadata
+    # MCP call: mcp__research-arxiv__get_arxiv_paper
+    #   arxivId: "$paper_id"
+
+    # Get BibTeX citation
+    # MCP call: mcp__research-arxiv__arxiv_to_bibtex
+    #   arxivId: "$paper_id"
+
+  elif [ "$paper_source" = "semantic-scholar" ]; then
+    # Get detailed metadata including citations
+    # MCP call: mcp__research-semantic-scholar__get_semantic_scholar_paper
+    #   identifier: "$paper_id"
+
+    # Get papers that cite this one
+    # MCP call: mcp__research-semantic-scholar__get_paper_citations
+    #   paperId: "$paper_id"
+    #   maxResults: 15
+
+    # Get BibTeX
+    # MCP call: mcp__research-semantic-scholar__semantic_scholar_to_bibtex
+    #   identifier: "$paper_id"
+  fi
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 2: Download and read full paper (arxiv-advanced)
+  # ───────────────────────────────────────────────────────────────────────
+
+  # Download paper (creates resource, converts to markdown)
+  # MCP call: mcp__arxiv-advanced__download_paper
+  #   paper_id: "$paper_id"
+  #   check_status: false
+
+  # Check download/conversion status
+  # MCP call: mcp__arxiv-advanced__download_paper
+  #   paper_id: "$paper_id"
+  #   check_status: true
+
+  # Read full paper content in markdown format
+  # MCP call: mcp__arxiv-advanced__read_paper
+  #   paper_id: "$paper_id"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 3: Extract implementation-relevant information
+  # ───────────────────────────────────────────────────────────────────────
+
+  # From paper content, extract:
+  # - Algorithm pseudocode
+  # - Model architecture details
+  # - Hyperparameter recommendations
+  # - Loss function definitions
+  # - Training procedures
+  # - Evaluation metrics
+  # - Code repository links
+
+  # ───────────────────────────────────────────────────────────────────────
+  # STEP 4: Store findings in memory
+  # ───────────────────────────────────────────────────────────────────────
+
+  # store_to_memory "research" "Paper $paper_id findings: ..." "paper,research,$paper_id"
+}
+
+list_downloaded_papers() {
+  echo "=== Listing Downloaded Papers ==="
+
+  # MCP call: mcp__arxiv-advanced__list_papers
+  # Returns: All papers downloaded and available as resources
+}
+```
+
+### 13.4 Research-Derived Task Creation
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.4: CREATE TASKS FROM RESEARCH FINDINGS
+# Convert paper insights into actionable Beads tasks
+# ═══════════════════════════════════════════════════════════════════════════
+
+create_research_tasks() {
+  local paper_id="$1"
+  local extracted_info="$2"
+
+  echo "=== Creating Research-Derived Tasks ==="
+
+  # 1. Algorithm implementation tasks
+  bd create \
+    --title="Implement algorithm from paper $paper_id" \
+    --type=feature \
+    --priority=1 \
+    --description="Based on paper findings:
+$extracted_info
+
+Reference: $paper_id" \
+    --labels="research,implementation"
+
+  # 2. Architecture tasks
+  bd create \
+    --title="Build model architecture per paper specification" \
+    --type=task \
+    --priority=1 \
+    --description="Architecture details from paper $paper_id"
+
+  # 3. Hyperparameter configuration tasks
+  bd create \
+    --title="Configure hyperparameters per paper recommendations" \
+    --type=task \
+    --priority=2 \
+    --description="Hyperparameters from paper $paper_id"
+
+  # 4. Add dependencies between tasks
+  # bd dep add <impl_task> <arch_task>
+}
+```
+
+### 13.5 Advanced Research Synthesis Workflow
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.5: ADVANCED RESEARCH SYNTHESIS
+# Iterative synthesis from multiple papers until validated solution found
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_advanced_research_synthesis() {
+  PROJECT_PATH="$1"
+  DEVELOPMENT_REQUIREMENT="$2"
+
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║        ADVANCED RESEARCH SYNTHESIS WORKFLOW (ITERATIVE)                   ║"
+  echo "║        Requirement: $DEVELOPMENT_REQUIREMENT"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  MAX_SYNTHESIS_ITERATIONS=500
+  synthesis_iteration=0
+  SOLUTION_FOUND=false
+  SOLUTION_CONFIDENCE=0
+  MIN_CONFIDENCE_THRESHOLD=80
+
+  while [ "$SOLUTION_FOUND" = false ] && [ $synthesis_iteration -lt $MAX_SYNTHESIS_ITERATIONS ]; do
+    synthesis_iteration=$((synthesis_iteration + 1))
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ SYNTHESIS ITERATION $synthesis_iteration / $MAX_SYNTHESIS_ITERATIONS"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # PHASE 1: Paper Collection
+    echo ">>> PHASE 1: Collecting papers..."
+
+    # PHASE 2: Deep Analysis
+    echo ">>> PHASE 2: Analyzing papers..."
+
+    # PHASE 3: Cross-Paper Synthesis
+    echo ">>> PHASE 3: Synthesizing ideas..."
+
+    # PHASE 4: Methodology Planning
+    echo ">>> PHASE 4: Planning methodology..."
+
+    # PHASE 5: Validation Check
+    echo ">>> PHASE 5: Validating..."
+
+    # Calculate confidence based on criteria met
+    # SOLUTION_CONFIDENCE = sum of criteria
+
+    if [ "$SOLUTION_CONFIDENCE" -ge "$MIN_CONFIDENCE_THRESHOLD" ]; then
+      SOLUTION_FOUND=true
+      echo ">>> SOLUTION FOUND: ${SOLUTION_CONFIDENCE}% confidence"
+    else
+      echo ">>> Confidence: ${SOLUTION_CONFIDENCE}% (need ${MIN_CONFIDENCE_THRESHOLD}%)"
+    fi
+  done
+
+  if [ "$SOLUTION_FOUND" = true ]; then
+    # Persist solution
+    bd create \
+      --title="Implement research-validated solution: $DEVELOPMENT_REQUIREMENT" \
+      --type=feature \
+      --priority=0 \
+      --description="Confidence: ${SOLUTION_CONFIDENCE}%. Iterations: $synthesis_iteration"
+
+    return 0
+  else
+    bd create \
+      --title="Manual research review needed: $DEVELOPMENT_REQUIREMENT" \
+      --type=task \
+      --priority=0 \
+      --description="Automated synthesis incomplete after $MAX_SYNTHESIS_ITERATIONS iterations"
+
+    return 1
+  fi
+}
+```
+
+### 13.6 Research Phase Orchestration
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.6: RESEARCH PHASE ORCHESTRATION
+# Main entry point for research-driven development
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_research_phase() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Running Research Phase ==="
+
+  detect_research_requirements "$PROJECT_PATH"
+
+  if [ "$RESEARCH_LEVEL" = "low" ]; then
+    echo "Research phase not required (score: $RESEARCH_SCORE)"
+    return 0
+  fi
+
+  QUERIES=()
+  DIFFICULT_REQUIREMENTS=()
+
+  # Extract queries from NotImplementedError
+  while IFS= read -r line; do
+    query=$(echo "$line" | grep -oP 'NotImplementedError\("\K[^"]+')
+    [ -n "$query" ] && QUERIES+=("$query")
+
+    if echo "$query" | grep -qiE "novel|cutting.edge|SOTA|advanced|research"; then
+      DIFFICULT_REQUIREMENTS+=("$query")
+    fi
+  done < <(grep -rn "NotImplementedError" "$PROJECT_PATH" --include="*.py" 2>/dev/null)
+
+  # Handle difficult requirements with synthesis
+  if [ ${#DIFFICULT_REQUIREMENTS[@]} -gt 0 ]; then
+    for requirement in "${DIFFICULT_REQUIREMENTS[@]}"; do
+      run_advanced_research_synthesis "$PROJECT_PATH" "$requirement"
+    done
+  fi
+
+  # Standard paper search for simpler queries
+  for query in "${QUERIES[@]}"; do
+    [[ " ${DIFFICULT_REQUIREMENTS[*]} " =~ " ${query} " ]] && continue
+    search_academic_papers "$query" 5
+  done
+
+  store_to_memory "research" "Research phase complete for $PROJECT_PATH" "research,phase13"
+
+  echo "Research phase complete"
+}
+```
+
+---
+
+## PHASE 14: Functionality Fix Phase
+
+### 14.0 Overview
+
+For projects with broken functionality:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FUNCTIONALITY FIX PHASE                                   │
+│                    (Phase 14: For projects with broken functionality)       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PROBLEM TYPES DETECTED:                                                   │
+│  ├─ Import errors           → Cannot load modules                          │
+│  ├─ Missing dependencies    → Required packages not installed              │
+│  ├─ Test collection errors  → Tests cannot be discovered                   │
+│  ├─ Circular imports        → Module dependency cycles                     │
+│  └─ Runtime errors          → Code crashes when executed                   │
+│                                                                             │
+│  WORKFLOW:                                                                  │
+│  ├─ 14.1: Detect functionality problems                                    │
+│  ├─ 14.2: Categorize and prioritize issues                                 │
+│  └─ 14.3: Systematic fix workflow                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.1 Functionality Problem Detection
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 14.1: DETECT FUNCTIONALITY PROBLEMS
+# Find issues that prevent the project from running
+# ═══════════════════════════════════════════════════════════════════════════
+
+detect_functionality_problems() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Detecting Functionality Problems ==="
+
+  FUNCTIONALITY_ISSUES=()
+  FUNCTIONALITY_SCORE=0
+
+  cd "$PROJECT_PATH"
+
+  # Check for import errors
+  IMPORT_ERRORS=$(python -c "
+import sys
+import pkgutil
+import importlib.util
+sys.path.insert(0, '.')
+errors = []
+for finder, name, ispkg in pkgutil.walk_packages(['.'], onerror=lambda x: None):
+    if not name.startswith('test') and not name.startswith('.'):
+        try:
+            spec = importlib.util.find_spec(name)
+            if spec:
+                importlib.import_module(name)
+        except Exception as e:
+            errors.append(str(type(e).__name__))
+for e in errors[:20]:
+    print(e)
+" 2>&1 | grep -c "Error\|Exception" || echo "0")
+
+  if [ "$IMPORT_ERRORS" -gt 0 ]; then
+    FUNCTIONALITY_ISSUES+=("Import errors: $IMPORT_ERRORS")
+    FUNCTIONALITY_SCORE=$((FUNCTIONALITY_SCORE + IMPORT_ERRORS * 7))
+  fi
+
+  # Check for test collection failures
+  if [ -d "$PROJECT_PATH/tests" ]; then
+    TEST_FAILURES=$(conda run -n {{ENV_NAME}} python -m pytest tests/ --collect-only -q 2>&1 | grep -c "error\|Error" || echo "0")
+    if [ "$TEST_FAILURES" -gt 0 ]; then
+      FUNCTIONALITY_ISSUES+=("Test collection errors: $TEST_FAILURES")
+      FUNCTIONALITY_SCORE=$((FUNCTIONALITY_SCORE + TEST_FAILURES * 6))
+    fi
+  fi
+
+  # Check for circular imports
+  CIRCULAR=$(grep -rn "from \. import\|from \.\. import" "$PROJECT_PATH" --include="*.py" 2>/dev/null | wc -l)
+  if [ "$CIRCULAR" -gt 10 ]; then
+    FUNCTIONALITY_ISSUES+=("Potential circular imports: $CIRCULAR")
+    FUNCTIONALITY_SCORE=$((FUNCTIONALITY_SCORE + 5))
+  fi
+
+  # Check for missing dependencies
+  if [ -f "$PROJECT_PATH/requirements.txt" ]; then
+    while IFS= read -r req; do
+      pkg=$(echo "$req" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1 | cut -d'[' -f1 | tr -d ' ')
+      [ -z "$pkg" ] && continue
+      [[ "$pkg" =~ ^# ]] && continue
+      import_name=$(echo "$pkg" | tr '-' '_' | tr '[:upper:]' '[:lower:]')
+      if ! python -c "import $import_name" 2>/dev/null; then
+        FUNCTIONALITY_ISSUES+=("Missing: $pkg")
+        FUNCTIONALITY_SCORE=$((FUNCTIONALITY_SCORE + 3))
+      fi
+    done < "$PROJECT_PATH/requirements.txt"
+  fi
+
+  echo ""
+  echo "┌─────────────────────────────────────────┐"
+  echo "│ FUNCTIONALITY PROBLEM ANALYSIS          │"
+  echo "├─────────────────────────────────────────┤"
+  echo "│ Functionality Score: $FUNCTIONALITY_SCORE"
+  echo "│ Issues:"
+  for issue in "${FUNCTIONALITY_ISSUES[@]}"; do
+    echo "│   - $issue"
+  done
+  echo "└─────────────────────────────────────────┘"
+
+  export FUNCTIONALITY_SCORE
+  export FUNCTIONALITY_ISSUES
+}
+```
+
+### 14.2 Functionality Fix Workflow
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 14.2: FUNCTIONALITY FIX WORKFLOW
+# Systematically fix detected functionality problems
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_functionality_fix_phase() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Running Functionality Fix Phase ==="
+
+  detect_functionality_problems "$PROJECT_PATH"
+
+  if [ "$FUNCTIONALITY_SCORE" -eq 0 ]; then
+    echo "No functionality problems detected"
+    return 0
+  fi
+
+  PREV_SCORE=$FUNCTIONALITY_SCORE
+
+  # Create tasks for each issue
+  for issue in "${FUNCTIONALITY_ISSUES[@]}"; do
+    if [[ "$issue" == "Import errors"* ]]; then
+      bd create --title="Fix import errors" --type=bug --priority=0 \
+        --description="$issue"
+    elif [[ "$issue" == "Missing:"* ]]; then
+      pkg=$(echo "$issue" | cut -d: -f2 | tr -d ' ')
+      bd create --title="Install missing: $pkg" --type=bug --priority=1 \
+        --description="Package $pkg required but not installed"
+    elif [[ "$issue" == "Test collection"* ]]; then
+      bd create --title="Fix test collection errors" --type=bug --priority=1 \
+        --description="$issue"
+    elif [[ "$issue" == "Potential circular"* ]]; then
+      bd create --title="Resolve circular imports" --type=bug --priority=2 \
+        --description="$issue"
+    fi
+  done
+
+  # Work through fixes
+  MAX_FIX_ITERATIONS=20
+  fix_iteration=0
+
+  while [ "$(bd ready | grep -c .)" -gt 0 ] && [ $fix_iteration -lt $MAX_FIX_ITERATIONS ]; do
+    fix_iteration=$((fix_iteration + 1))
+    echo "=== Fix Iteration $fix_iteration ==="
+
+    task_id=$(bd ready | head -1 | awk '{print $1}')
+    [ -z "$task_id" ] && break
+
+    bd update "$task_id" --status=in_progress
+
+    # Apply fix (using serena, pip, etc.)
+
+    # Verify fix
+    detect_functionality_problems "$PROJECT_PATH"
+
+    if [ "$FUNCTIONALITY_SCORE" -lt "$PREV_SCORE" ]; then
+      bd close "$task_id" --reason="Fixed, score: $PREV_SCORE -> $FUNCTIONALITY_SCORE"
+      PREV_SCORE=$FUNCTIONALITY_SCORE
+    else
+      bd update "$task_id" --status=blocked
+      bd create --title="Alternative fix needed" --type=task --priority=0
+    fi
+
+    [ "$FUNCTIONALITY_SCORE" -eq 0 ] && break
+  done
+
+  echo "=== Functionality Fix Phase Complete ==="
+  echo "Final score: $FUNCTIONALITY_SCORE"
+}
+```
+
+---
+
+## PHASE 15: Master Orchestration Loop
+
+### 15.0 Overview
+
+Iterative loop until project is fully complete:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MASTER ORCHESTRATION LOOP                                 │
+│                    (Runs until project fully complete)                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PROJECT TYPES HANDLED:                                                    │
+│  ├─ complete               → Standard deployment (Phases 0-9)              │
+│  ├─ functionality_problems → Fix first (Phase 14), then continue           │
+│  ├─ incomplete_research    → Research (13) → Development (11)             │
+│  ├─ incomplete_critical    → Development completion (Phase 11)             │
+│  └─ incomplete_minor       → Address TODOs/stubs (Phase 11)                │
+│                                                                             │
+│  ITERATION CYCLE:                                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ ASSESS → ROUTE → EXECUTE → VERIFY → (loop or complete)              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  FEATURES:                                                                  │
+│  ├─ Memory persistence across iterations                                   │
+│  ├─ Self-healing when stuck                                               │
+│  └─ Automatic routing based on project state                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 15.1 Master Orchestration Function
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# MASTER ORCHESTRATION LOOP
+# Runs iteratively until project is fully deployed, tested, and functional
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_master_orchestration() {
+  PROJECT_PATH="${1:-$(pwd)}"
+  PROJECT_NAME="${2:-$(basename $PROJECT_PATH)}"
+
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║           RALPH-LOOP MASTER ORCHESTRATION                                 ║"
+  echo "║           Project: $PROJECT_NAME"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  MAX_OUTER_ITERATIONS=10
+  iteration=0
+  PREV_COMPLEXITY_SCORE=999999
+
+  # Initialize memory layer
+  initialize_memory_layer "$PROJECT_PATH" "$PROJECT_NAME"
+
+  # Recover previous session context
+  recover_after_compaction
+
+  while [ $iteration -lt $MAX_OUTER_ITERATIONS ]; do
+    iteration=$((iteration + 1))
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║ ORCHESTRATION ITERATION $iteration / $MAX_OUTER_ITERATIONS"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # STEP 1: ASSESS
+    echo ">>> STEP 1: Assessing project state..."
+    assess_project_completeness_enhanced "$PROJECT_PATH"
+
+    # STEP 2: ROUTE
+    echo ">>> STEP 2: Routing based on status: $PROJECT_STATUS"
+
+    case "$PROJECT_STATUS" in
+      "complete")
+        echo "Project complete. Running verification..."
+        NEXT_PHASE="verify"
+        ;;
+      "functionality_problems")
+        echo "Routing to Phase 14: Functionality Fix"
+        NEXT_PHASE="14"
+        ;;
+      "incomplete_research")
+        echo "Routing to Phase 13: Research, then Phase 11"
+        NEXT_PHASE="13"
+        ;;
+      "incomplete_critical"|"incomplete_minor")
+        echo "Routing to Phase 11: Development"
+        NEXT_PHASE="11"
+        ;;
+    esac
+
+    # STEP 3: EXECUTE
+    echo ">>> STEP 3: Executing phase $NEXT_PHASE..."
+
+    case "$NEXT_PHASE" in
+      "14") run_functionality_fix_phase "$PROJECT_PATH" ;;
+      "13") run_research_phase "$PROJECT_PATH"; run_development_completion "$PROJECT_PATH" ;;
+      "11") run_development_completion "$PROJECT_PATH" ;;
+      "verify") run_phase_12_verification "$PROJECT_PATH" "{{ENV_NAME}}" ;;
+    esac
+
+    # STEP 4: VERIFY
+    echo ">>> STEP 4: Verifying completion..."
+
+    check_completion_criteria "$PROJECT_PATH"
+    CRITERIA_RESULT=$?
+
+    # STEP 5: ITERATE OR COMPLETE
+    if [ $CRITERIA_RESULT -eq 0 ]; then
+      echo ""
+      echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+      echo "║ PROJECT COMPLETE - All criteria met                                       ║"
+      echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+      persist_before_compaction
+      bd sync
+
+      return 0
+    else
+      echo "Criteria not met. Continuing..."
+
+      store_to_memory "progress" "Iteration $iteration: $PROJECT_STATUS" "iteration,progress"
+
+      if [ "$COMPLEXITY_SCORE" -ge "$PREV_COMPLEXITY_SCORE" ] && [ $iteration -gt 2 ]; then
+        echo "WARNING: Not making progress. Self-healing..."
+        trigger_self_healing
+      fi
+
+      PREV_COMPLEXITY_SCORE=$COMPLEXITY_SCORE
+    fi
+  done
+
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║ MAX ITERATIONS REACHED - Manual intervention may be required              ║"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  persist_before_compaction
+  return 1
+}
+```
+
+### 15.2 Completion Criteria Check
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPLETION CRITERIA CHECK
+# Verifies all requirements are met
+# ═══════════════════════════════════════════════════════════════════════════
+
+check_completion_criteria() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Checking Completion Criteria ==="
+
+  CRITERIA_MET=0
+  TOTAL_CRITERIA=6
+
+  # 1. No NotImplementedError
+  NOT_IMPL=$(grep -rn "NotImplementedError\|raise NotImplemented" "$PROJECT_PATH" --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l)
+  if [ "$NOT_IMPL" -eq 0 ]; then
+    echo "✓ No NotImplementedError"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  else
+    echo "✗ Has $NOT_IMPL NotImplementedError"
+  fi
+
+  # 2. No import errors
+  IMPORT_OK=$(cd "$PROJECT_PATH" && python -c "import sys; sys.path.insert(0,'.')" 2>&1 | grep -c "Error" || echo "0")
+  if [ "$IMPORT_OK" -eq 0 ]; then
+    echo "✓ No import errors"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  else
+    echo "✗ Has import errors"
+  fi
+
+  # 3. Tests pass
+  if [ -d "$PROJECT_PATH/tests" ]; then
+    TEST_RESULT=$(cd "$PROJECT_PATH" && conda run -n {{ENV_NAME}} python -m pytest tests/ -q 2>&1 | tail -1)
+    if echo "$TEST_RESULT" | grep -q "passed"; then
+      echo "✓ Tests pass"
+      CRITERIA_MET=$((CRITERIA_MET + 1))
+    else
+      echo "✗ Tests: $TEST_RESULT"
+    fi
+  else
+    echo "⊘ No tests directory"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  fi
+
+  # 4. No blocked tasks
+  BLOCKED=$(bd blocked 2>/dev/null | grep -c . || echo "0")
+  if [ "$BLOCKED" -eq 0 ]; then
+    echo "✓ No blocked tasks"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  else
+    echo "✗ Has $BLOCKED blocked tasks"
+  fi
+
+  # 5. No in_progress tasks
+  IN_PROGRESS=$(bd list --status=in_progress 2>/dev/null | grep -c . || echo "0")
+  if [ "$IN_PROGRESS" -eq 0 ]; then
+    echo "✓ No tasks in progress"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  else
+    echo "✗ Has $IN_PROGRESS tasks in progress"
+  fi
+
+  # 6. Functionality score is 0
+  detect_functionality_problems "$PROJECT_PATH" >/dev/null 2>&1
+  if [ "$FUNCTIONALITY_SCORE" -eq 0 ]; then
+    echo "✓ No functionality problems"
+    CRITERIA_MET=$((CRITERIA_MET + 1))
+  else
+    echo "✗ Functionality score: $FUNCTIONALITY_SCORE"
+  fi
+
+  echo ""
+  echo "Criteria met: $CRITERIA_MET / $TOTAL_CRITERIA"
+
+  [ "$CRITERIA_MET" -eq "$TOTAL_CRITERIA" ] && return 0 || return 1
+}
+```
+
+### 15.3 Self-Healing Mechanism
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# SELF-HEALING MECHANISM
+# Triggered when not making progress
+# ═══════════════════════════════════════════════════════════════════════════
+
+trigger_self_healing() {
+  echo "=== Self-Healing Triggered ==="
+
+  # 1. Check blocked tasks
+  BLOCKED_COUNT=$(bd blocked 2>/dev/null | grep -c . || echo "0")
+  if [ "$BLOCKED_COUNT" -gt 0 ]; then
+    echo "Found $BLOCKED_COUNT blocked tasks..."
+
+    while IFS= read -r blocked_line; do
+      task_id=$(echo "$blocked_line" | awk '{print $1}')
+      [ -z "$task_id" ] && continue
+
+      bd create --title="Unblock: $task_id" --type=task --priority=0 \
+        --description="Self-healing: Investigate and resolve blocker"
+    done < <(bd blocked 2>/dev/null)
+  fi
+
+  # 2. Query memory for similar issues
+  echo "Searching memory for similar situations..."
+  retrieve_relevant_memories "stuck not progressing self-healing"
+
+  # 3. Store self-healing event
+  store_to_memory "error" "Self-healing triggered - not making progress" "self-healing,stuck"
+
+  echo "Self-healing analysis complete"
 }
 ```
 
