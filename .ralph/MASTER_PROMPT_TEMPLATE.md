@@ -2913,6 +2913,17 @@ run_development_completion_loop() {
 
   echo "Development loop completed after $max_iterations iterations"
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WRAPPER: run_development_completion
+# Alias for run_development_completion_loop (for master orchestration)
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_development_completion() {
+  run_development_completion_loop "$@"
+}
+
+export -f run_development_completion
 ```
 
 ---
@@ -3417,6 +3428,17 @@ run_complete_verification() {
     return 1
   fi
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WRAPPER: run_phase_12_verification
+# Alias for run_complete_verification (for master orchestration)
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_phase_12_verification() {
+  run_complete_verification "$@"
+}
+
+export -f run_phase_12_verification
 ```
 
 ---
