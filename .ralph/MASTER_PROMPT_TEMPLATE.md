@@ -912,23 +912,252 @@ mcp__github-mcp__list_commits with owner="{{ORG}}" repo="{{REPO}}" sha="main"
 
 ### 8.2 Completion Criteria
 
+Ralph-loop has two levels of completion criteria:
+
+1. **Deployment-Only Projects** (complete projects): Standard criteria
+2. **Development + Deployment Projects** (incomplete projects): Enhanced criteria
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              ENHANCED COMPLETION CRITERIA                                    │
+│              (Applies to all projects)                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  TASK MANAGEMENT (Required)                                                 │
+│  ├─ [ ] No open tasks: bd list --status=open returns empty                 │
+│  ├─ [ ] No blocked tasks: bd blocked returns empty                         │
+│  └─ [ ] All in_progress tasks closed                                       │
+│                                                                             │
+│  CODE COMPLETENESS (Required for incomplete projects)                       │
+│  ├─ [ ] No NotImplementedError in codebase                                 │
+│  ├─ [ ] No empty function bodies (pass/... stubs)                          │
+│  └─ [ ] Critical TODOs addressed (P0-P2)                                   │
+│                                                                             │
+│  TEST COVERAGE (Required)                                                   │
+│  ├─ [ ] All tests passing: pytest tests/ exits 0                           │
+│  ├─ [ ] Coverage >= 80%: --cov-fail-under=80 passes                        │
+│  └─ [ ] No skipped tests without documented reason                         │
+│                                                                             │
+│  FUNCTIONAL VERIFICATION (Required)                                         │
+│  ├─ [ ] Core imports work: python -c "from {{PROJECT}} import *"           │
+│  ├─ [ ] Entry points work: main.py --help, cli.py --help                   │
+│  ├─ [ ] Services start: health endpoints respond                           │
+│  └─ [ ] CUDA available (if GPU project)                                    │
+│                                                                             │
+│  ENVIRONMENT (Required)                                                     │
+│  ├─ [ ] Conda environment exists and verified                              │
+│  ├─ [ ] Environment variables configured in .bashrc                        │
+│  └─ [ ] Ports allocated and available                                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ```bash
-# Ralph-loop terminates when ALL conditions met:
+# ═══════════════════════════════════════════════════════════════════════════
+# ENHANCED COMPLETION CRITERIA CHECK
+# Project is ready for deployment when ALL conditions met
+# ═══════════════════════════════════════════════════════════════════════════
 
-# 1. No open tasks
-bd list --status=open  # Returns empty
+check_completion_criteria() {
+  local project_path="${1:-$(pwd)}"
+  local env_name="${2:-{{ENV_NAME}}}"
 
-# 2. No blocked tasks (all resolved)
-bd blocked  # Returns empty
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "                    COMPLETION CRITERIA CHECK"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo ""
 
-# 3. All verifications pass
-conda run -n {{ENV}} python -c "{{FINAL_VERIFICATION}}"
+  CRITERIA_MET=0
+  CRITERIA_TOTAL=0
 
-# 4. Services accessible (if applicable)
-curl -s http://localhost:{{PORT}}/health | grep -q "ok"
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TASK MANAGEMENT
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo "--- TASK MANAGEMENT ---"
 
-# 5. Environment properly configured
-source ~/.bashrc && test -n "${{PROJECT_PREFIX}}_PROJECT_PATH"
+  # 1. No open tasks
+  ((CRITERIA_TOTAL++))
+  OPEN_TASKS=$(bd list --status=open 2>/dev/null | grep -c "^{{PROJECT_PREFIX}}-" || echo "0")
+  if [ "$OPEN_TASKS" -eq 0 ]; then
+    echo "✓ No open tasks"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ $OPEN_TASKS open tasks remain"
+  fi
+
+  # 2. No blocked tasks
+  ((CRITERIA_TOTAL++))
+  BLOCKED_TASKS=$(bd blocked 2>/dev/null | grep -c "^{{PROJECT_PREFIX}}-" || echo "0")
+  if [ "$BLOCKED_TASKS" -eq 0 ]; then
+    echo "✓ No blocked tasks"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ $BLOCKED_TASKS blocked tasks"
+  fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CODE COMPLETENESS
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ""
+  echo "--- CODE COMPLETENESS ---"
+
+  # 3. No NotImplementedError
+  ((CRITERIA_TOTAL++))
+  NOT_IMPL=$(grep -rn "NotImplementedError\|raise NotImplemented" "$project_path" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l)
+  if [ "$NOT_IMPL" -eq 0 ]; then
+    echo "✓ No NotImplementedError"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ $NOT_IMPL unimplemented functions"
+  fi
+
+  # 4. No empty function bodies
+  ((CRITERIA_TOTAL++))
+  EMPTY_FUNCS=$(grep -Pzo "def \w+\([^)]*\):\s*\n\s*(pass|\.\.\.)\s*\n" "$project_path" \
+    --include="*.py" 2>/dev/null | grep -c "def " || echo "0")
+  if [ "$EMPTY_FUNCS" -eq 0 ]; then
+    echo "✓ No empty function bodies"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ $EMPTY_FUNCS empty function bodies"
+  fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TEST COVERAGE
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ""
+  echo "--- TEST COVERAGE ---"
+
+  # 5. All tests passing
+  ((CRITERIA_TOTAL++))
+  cd "$project_path"
+  conda run -n "$env_name" pytest tests/ -v --tb=no -q 2>/dev/null
+  if [ $? -eq 0 ]; then
+    echo "✓ All tests passing"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ Tests failing"
+  fi
+
+  # 6. Coverage >= 80%
+  ((CRITERIA_TOTAL++))
+  COVERAGE=$(conda run -n "$env_name" pytest tests/ --cov={{PROJECT_NAME}} \
+    --cov-report=term 2>/dev/null | grep "TOTAL" | awk '{print $NF}' | tr -d '%')
+  if [ "${COVERAGE:-0}" -ge 80 ]; then
+    echo "✓ Coverage: ${COVERAGE}% (>= 80%)"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ Coverage: ${COVERAGE:-0}% (< 80%)"
+  fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTIONAL VERIFICATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ""
+  echo "--- FUNCTIONAL VERIFICATION ---"
+
+  # 7. Core imports work
+  ((CRITERIA_TOTAL++))
+  conda run -n "$env_name" python -c "from {{PROJECT_NAME}} import *" 2>/dev/null
+  if [ $? -eq 0 ]; then
+    echo "✓ Core imports work"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ Core imports FAILED"
+  fi
+
+  # 8. Services accessible (if applicable)
+  if [ -f "$project_path/app.py" ] || grep -rq "FastAPI\|Flask" "$project_path"/*.py 2>/dev/null; then
+    ((CRITERIA_TOTAL++))
+    curl -s --connect-timeout 5 "http://localhost:{{PORT_START}}/health" 2>/dev/null | grep -qi "ok\|healthy\|200"
+    if [ $? -eq 0 ]; then
+      echo "✓ Service health check passed"
+      ((CRITERIA_MET++))
+    else
+      echo "✗ Service health check FAILED (may need to start service)"
+    fi
+  fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ENVIRONMENT
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ""
+  echo "--- ENVIRONMENT ---"
+
+  # 9. Conda environment exists
+  ((CRITERIA_TOTAL++))
+  if conda env list | grep -q "^$env_name "; then
+    echo "✓ Conda environment exists: $env_name"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ Conda environment missing: $env_name"
+  fi
+
+  # 10. Environment variables configured
+  ((CRITERIA_TOTAL++))
+  source ~/.bashrc 2>/dev/null
+  if [ -n "${{PROJECT_PREFIX}}_PROJECT_PATH" ]; then
+    echo "✓ Environment variables configured"
+    ((CRITERIA_MET++))
+  else
+    echo "✗ Environment variables not configured"
+  fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SUMMARY
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "COMPLETION CRITERIA: $CRITERIA_MET / $CRITERIA_TOTAL passed"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+
+  if [ "$CRITERIA_MET" -eq "$CRITERIA_TOTAL" ]; then
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────────────────┐"
+    echo "│                                                                         │"
+    echo "│                    ✓ PROJECT READY FOR DEPLOYMENT                      │"
+    echo "│                                                                         │"
+    echo "└─────────────────────────────────────────────────────────────────────────┘"
+    return 0
+  else
+    MISSING=$((CRITERIA_TOTAL - CRITERIA_MET))
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────────────────┐"
+    echo "│                                                                         │"
+    echo "│            ✗ PROJECT NOT READY - $MISSING criteria not met             │"
+    echo "│                                                                         │"
+    echo "│  Run 'bd ready' to see remaining tasks                                  │"
+    echo "│  Run Phase 11 for development completion                                │"
+    echo "│  Run Phase 12 for test verification                                     │"
+    echo "│                                                                         │"
+    echo "└─────────────────────────────────────────────────────────────────────────┘"
+    return 1
+  fi
+}
+
+# Export for use in other scripts
+export -f check_completion_criteria
+```
+
+### 8.2.1 Quick Completion Check (Simplified)
+
+For fast iteration, use this simplified check:
+
+```bash
+# Quick check - returns 0 if ready, 1 if not
+quick_completion_check() {
+  local env_name="${1:-{{ENV_NAME}}}"
+  local project_path="${2:-$(pwd)}"
+
+  # Must-pass criteria (any failure = not ready)
+  bd list --status=open 2>/dev/null | grep -q "^{{PROJECT_PREFIX}}-" && return 1
+  bd blocked 2>/dev/null | grep -q "^{{PROJECT_PREFIX}}-" && return 1
+  grep -rq "NotImplementedError" "$project_path" --include="*.py" 2>/dev/null && return 1
+  conda run -n "$env_name" pytest tests/ -x -q 2>/dev/null || return 1
+
+  return 0
+}
 ```
 
 ---
@@ -1441,6 +1670,1221 @@ Content: $CONTENT"
 
 # Usage in ralph-loop Step 7 (COMPLETE TASK):
 # post_task_gap_check "{{TASK_ID}}" "file1.py file2.py file3.py"
+```
+
+---
+
+## PHASE 10.5: Project Completeness Assessment
+
+### 10.5.1 Purpose & Decision Logic
+
+Determine if project is complete (ready for deployment) or incomplete (needs development):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              PROJECT COMPLETENESS ASSESSMENT                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  DECISION FLOW:                                                             │
+│  ├─ Count incomplete indicators (TODOs, NotImplementedError, stubs)        │
+│  ├─ Assess severity (blocking vs non-blocking)                             │
+│  └─ Route to appropriate workflow:                                          │
+│      ├─ COMPLETE → Standard deployment (Phases 0-9)                        │
+│      └─ INCOMPLETE → Development completion (Phase 11) + deployment        │
+│                                                                             │
+│  INCOMPLETE INDICATORS:                                                     │
+│  ├─ NotImplementedError        → Critical (blocks functionality)           │
+│  ├─ raise NotImplemented       → Critical (alternative syntax)             │
+│  ├─ TODO/FIXME/XXX markers     → Moderate (planned work)                   │
+│  ├─ pass  # stub               → Moderate (placeholder)                    │
+│  ├─ ...  # placeholder         → Moderate (ellipsis placeholders)          │
+│  └─ Empty function bodies      → Critical (no implementation)              │
+│                                                                             │
+│  PROJECT STATUS VALUES:                                                     │
+│  ├─ complete           → All indicators = 0, ready for deployment          │
+│  ├─ incomplete_critical → Has NotImplementedError, MUST develop first      │
+│  └─ incomplete_minor   → Has TODOs/stubs, development recommended          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 10.5.2 Completeness Assessment Script
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# PROJECT COMPLETENESS ASSESSMENT
+# Determines if project needs deployment only or development + deployment
+# ═══════════════════════════════════════════════════════════════════════════
+
+assess_project_completeness() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Assessing Project Completeness ==="
+  echo "Project: $PROJECT_PATH"
+  echo ""
+
+  # Count incomplete indicators
+  NOT_IMPL=$(grep -rn "NotImplementedError\|raise NotImplemented" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l)
+
+  TODOS=$(grep -rn "TODO\|FIXME\|XXX" "$PROJECT_PATH" \
+    --include="*.py" --include="*.js" --include="*.ts" 2>/dev/null | \
+    grep -v "__pycache__" | grep -v "node_modules" | wc -l)
+
+  STUBS=$(grep -rn "pass  #\|\.\.\.  #" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | wc -l)
+
+  # Count empty function bodies (def foo(): pass or def foo(): ...)
+  EMPTY_FUNCS=$(grep -Pzo "def \w+\([^)]*\):\s*\n\s*(pass|\.\.\.)\s*\n" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -c "def " || echo "0")
+
+  TOTAL_INCOMPLETE=$((NOT_IMPL + TODOS + STUBS + EMPTY_FUNCS))
+
+  echo "┌─────────────────────────────────────────┐"
+  echo "│ INCOMPLETE INDICATOR COUNTS             │"
+  echo "├─────────────────────────────────────────┤"
+  echo "│ NotImplementedError:     $NOT_IMPL"
+  echo "│ TODO/FIXME/XXX markers:  $TODOS"
+  echo "│ Stub implementations:    $STUBS"
+  echo "│ Empty function bodies:   $EMPTY_FUNCS"
+  echo "├─────────────────────────────────────────┤"
+  echo "│ TOTAL INCOMPLETE:        $TOTAL_INCOMPLETE"
+  echo "└─────────────────────────────────────────┘"
+  echo ""
+
+  # Decision logic
+  if [ "$TOTAL_INCOMPLETE" -eq 0 ]; then
+    echo "PROJECT STATUS: ✓ COMPLETE"
+    echo "Action: Standard deployment (Phases 0-9)"
+    export PROJECT_STATUS="complete"
+    export NEEDS_DEVELOPMENT="false"
+  elif [ "$NOT_IMPL" -gt 0 ] || [ "$EMPTY_FUNCS" -gt 0 ]; then
+    echo "PROJECT STATUS: ✗ INCOMPLETE (Critical)"
+    echo "Reason: Has $NOT_IMPL unimplemented functions, $EMPTY_FUNCS empty bodies"
+    echo "Action: Development completion REQUIRED (Phase 11)"
+    export PROJECT_STATUS="incomplete_critical"
+    export NEEDS_DEVELOPMENT="true"
+  else
+    echo "PROJECT STATUS: ⚠ INCOMPLETE (Minor)"
+    echo "Reason: Has $TODOS TODOs, $STUBS stubs"
+    echo "Action: Development completion RECOMMENDED (Phase 11)"
+    export PROJECT_STATUS="incomplete_minor"
+    export NEEDS_DEVELOPMENT="true"
+  fi
+
+  # Create Beads summary task if incomplete
+  if [ "$PROJECT_STATUS" != "complete" ]; then
+    echo ""
+    echo "Creating Beads epic for development completion..."
+    bd create \
+      --title="Complete project development ($TOTAL_INCOMPLETE gaps)" \
+      --type=epic \
+      --priority=1 \
+      --description="Project has $NOT_IMPL unimplemented functions, $TODOS TODOs, $STUBS stubs, $EMPTY_FUNCS empty bodies.
+
+Development completion required before deployment.
+
+Status: $PROJECT_STATUS
+Assessed: $(date)"
+  fi
+
+  return 0
+}
+
+# Export for use in other scripts
+export -f assess_project_completeness
+```
+
+### 10.5.3 Detailed Gap Listing
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# LIST ALL INCOMPLETE ITEMS WITH LOCATIONS
+# For detailed planning of development work
+# ═══════════════════════════════════════════════════════════════════════════
+
+list_incomplete_items() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Detailed Incomplete Items List ==="
+  echo ""
+
+  echo "### CRITICAL: NotImplementedError ###"
+  grep -rn "NotImplementedError\|raise NotImplemented" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | head -50
+
+  echo ""
+  echo "### CRITICAL: Empty Function Bodies ###"
+  grep -Pzo "def \w+\([^)]*\):\s*\n\s*(pass|\.\.\.)\s*\n" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | head -50
+
+  echo ""
+  echo "### MODERATE: TODO/FIXME Markers ###"
+  grep -rn "TODO\|FIXME\|XXX" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | head -50
+
+  echo ""
+  echo "### MODERATE: Stub Implementations ###"
+  grep -rn "pass  #\|\.\.\.  #" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | head -50
+}
+```
+
+### 10.5.4 Integration with Ralph-Loop
+
+After Phase 10.5 assessment, the workflow branches:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              RALPH-LOOP ROUTING AFTER ASSESSMENT                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  assess_project_completeness()                                              │
+│          ↓                                                                  │
+│  ┌───────────────────────────────────────────────────────┐                 │
+│  │ PROJECT_STATUS = ?                                     │                 │
+│  └───────────────────────────────────────────────────────┘                 │
+│          ↓                                                                  │
+│    ┌─────┴─────┬─────────────────┐                                         │
+│    ↓           ↓                 ↓                                         │
+│ complete   incomplete_minor   incomplete_critical                          │
+│    │           │                 │                                         │
+│    │           └────────┬────────┘                                         │
+│    ↓                    ↓                                                  │
+│ Phase 9:            Phase 11:                                              │
+│ Verification        Development Completion                                 │
+│ & Testing           Workflow (11.1-11.4)                                   │
+│    │                    │                                                  │
+│    │                    ↓                                                  │
+│    │               Phase 12:                                               │
+│    │               Test Execution                                          │
+│    │               Framework (12.1-12.3)                                   │
+│    │                    │                                                  │
+│    └────────┬───────────┘                                                  │
+│             ↓                                                               │
+│       DEPLOYMENT READY                                                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## PHASE 11: Development Completion Workflow
+
+### 11.0 Overview
+
+When a project is assessed as incomplete (Phase 10.5), this workflow implements the missing functionality:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DEVELOPMENT COMPLETION WORKFLOW                           │
+│                    (For incomplete projects)                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 11.1: PRIORITIZE DEVELOPMENT TASKS                             │   │
+│  │ ├─ Parse all gaps from Phase 10                                     │   │
+│  │ ├─ Categorize by type and severity                                  │   │
+│  │ └─ Create ordered Beads tasks with dependencies                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 11.2: IMPLEMENT MISSING FUNCTIONALITY                          │   │
+│  │ ├─ Get next ready task: bd ready                                    │   │
+│  │ ├─ Understand requirements (MCP tools)                              │   │
+│  │ ├─ Generate implementation code                                     │   │
+│  │ └─ Save patterns to memory                                          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 11.3: WRITE TESTS FOR NEW CODE                                 │   │
+│  │ ├─ Create test file if not exists                                   │   │
+│  │ ├─ Write unit tests (happy path, edge cases, errors)                │   │
+│  │ └─ Ensure tests PASS before continuing                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ STEP 11.4: VERIFY IMPLEMENTATION                                    │   │
+│  │ ├─ Run related tests                                                │   │
+│  │ ├─ Check no new gaps introduced                                     │   │
+│  │ ├─ Verify imports work                                              │   │
+│  │ └─ Close Beads task and store in memory                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ↓                                              │
+│                    LOOP → STEP 11.1 (until no gaps remain)                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 11.1 Prioritize Development Tasks
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 11.1: PRIORITIZE DEVELOPMENT TASKS
+# Parse gaps and create ordered Beads tasks
+# ═══════════════════════════════════════════════════════════════════════════
+
+prioritize_development_tasks() {
+  PROJECT_PATH="${1:-$(pwd)}"
+
+  echo "=== Prioritizing Development Tasks ==="
+
+  # PRIORITY 0: Security issues (hardcoded secrets, vulnerabilities)
+  echo "--- P0: Security Issues ---"
+  grep -rn "password\s*=\s*[\"'][^\"']*[\"']" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | \
+  while read line; do
+    FILE=$(echo "$line" | cut -d: -f1)
+    LINENUM=$(echo "$line" | cut -d: -f2)
+    bd create \
+      --title="SECURITY: Remove hardcoded credential in $(basename $FILE)" \
+      --type=bug \
+      --priority=0 \
+      --description="Location: $FILE:$LINENUM
+Severity: CRITICAL
+Found during Phase 11.1 task prioritization.
+
+Remove hardcoded secret and use environment variables."
+  done
+
+  # PRIORITY 1: NotImplementedError (core functionality blocked)
+  echo "--- P1: NotImplementedError ---"
+  grep -rn "NotImplementedError\|raise NotImplemented" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | \
+  while read line; do
+    FILE=$(echo "$line" | cut -d: -f1)
+    LINENUM=$(echo "$line" | cut -d: -f2)
+    # Extract function name if possible
+    FUNC_NAME=$(sed -n "${LINENUM}p" "$FILE" 2>/dev/null | grep -oP "def \K\w+")
+    bd create \
+      --title="Implement: ${FUNC_NAME:-function} in $(basename $FILE)" \
+      --type=task \
+      --priority=1 \
+      --description="Location: $FILE:$LINENUM
+Gap Type: NotImplementedError
+Found during Phase 11.1 task prioritization.
+
+Implement the missing functionality."
+  done
+
+  # PRIORITY 2: Empty function bodies
+  echo "--- P2: Empty Function Bodies ---"
+  grep -Pzo "def (\w+)\([^)]*\):\s*\n\s*(pass|\.\.\.)\s*\n" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | \
+  while read -r match; do
+    FUNC_NAME=$(echo "$match" | grep -oP "def \K\w+")
+    [ -z "$FUNC_NAME" ] && continue
+    bd create \
+      --title="Implement: $FUNC_NAME (empty body)" \
+      --type=task \
+      --priority=2 \
+      --description="Gap Type: Empty function body
+Found during Phase 11.1 task prioritization.
+
+Function has stub implementation (pass or ...). Implement full functionality."
+  done
+
+  # PRIORITY 3: TODOs with clear requirements
+  echo "--- P3: TODO Markers ---"
+  grep -rn "TODO\|FIXME" "$PROJECT_PATH" \
+    --include="*.py" 2>/dev/null | grep -v "__pycache__" | head -20 | \
+  while read line; do
+    FILE=$(echo "$line" | cut -d: -f1)
+    LINENUM=$(echo "$line" | cut -d: -f2)
+    CONTENT=$(echo "$line" | cut -d: -f3- | head -c 80)
+    bd create \
+      --title="TODO: ${CONTENT:0:50}" \
+      --type=task \
+      --priority=3 \
+      --description="Location: $FILE:$LINENUM
+Content: $CONTENT
+Found during Phase 11.1 task prioritization."
+  done
+
+  # PRIORITY 4: Missing tests
+  echo "--- P4: Missing Tests ---"
+  find "$PROJECT_PATH" -path "**/src/*.py" -o -path "**/lib/*.py" 2>/dev/null | \
+  while read src; do
+    basename=$(basename "$src" .py)
+    [ "$basename" = "__init__" ] && continue
+    [[ "$src" == *"__pycache__"* ]] && continue
+
+    test_file="$PROJECT_PATH/tests/test_${basename}.py"
+    if [ ! -f "$test_file" ]; then
+      bd create \
+        --title="Write tests for $basename" \
+        --type=task \
+        --priority=4 \
+        --description="Source: $src
+Missing test file: $test_file
+Found during Phase 11.1 task prioritization."
+    fi
+  done
+
+  echo "=== Task prioritization complete ==="
+  echo "Run 'bd ready' to see tasks ready for development"
+}
+```
+
+### 11.2 Implement Missing Functionality
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 11.2: IMPLEMENT MISSING FUNCTIONALITY
+# MCP tool orchestration for development completion
+# ═══════════════════════════════════════════════════════════════════════════
+
+implement_missing_function() {
+  local file_path="$1"
+  local function_name="$2"
+  local task_id="$3"
+
+  echo "=== Implementing: $function_name in $file_path ==="
+
+  # 1. Claim the task
+  echo "Claiming task $task_id..."
+  bd update "$task_id" --status=in_progress
+
+  # 2. Understand context using MCP tools
+  echo "Analyzing context..."
+  # Use these MCP tools in sequence:
+  #
+  # mcp__code-reasoning__code-reasoning
+  #   - Analyze what the function should do based on:
+  #     - Function name and signature
+  #     - Docstring (if any)
+  #     - How it's called elsewhere in the codebase
+  #     - Similar functions in the same module
+  #
+  # mcp__context7__resolve-library-id + mcp__context7__query-docs
+  #   - Get documentation for libraries used by this function
+  #   - Understand API contracts and patterns
+  #
+  # mcp__serena__read_memory
+  #   - Check for project-specific patterns
+  #   - Look for similar implementations done previously
+  #
+  # mcp__cipher__ask_cipher
+  #   - Search conversation memory for past solutions
+  #   - Find how similar problems were solved
+
+  # 3. Generate implementation
+  echo "Generating implementation..."
+  # Use mcp__serena tools for code editing:
+  #
+  # mcp__serena__find_symbol
+  #   - Locate the stub function
+  #
+  # mcp__serena__replace_symbol_body
+  #   - Replace the stub with actual implementation
+  #
+  # Follow existing project patterns from serena memory
+
+  # 4. Run syntax check
+  conda run -n {{ENV_NAME}} python -m py_compile "$file_path"
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Syntax error in implementation"
+    bd update "$task_id" --status=blocked
+    bd create --title="Fix syntax error in $function_name" --type=bug --priority=1
+    return 1
+  fi
+
+  echo "Implementation complete, proceeding to tests..."
+  return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MCP TOOL ORCHESTRATION PATTERN FOR IMPLEMENTATION
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# STEP A: Memory Check
+# mcp__serena__read_memory("project-patterns.md")
+# mcp__cipher__ask_cipher("Search: how to implement {{FUNCTION_TYPE}} in {{PROJECT}}")
+# mcp__plugin_claude-mem_mcp-search__search(query="{{FUNCTION_NAME}} implementation")
+#
+# STEP B: Context Analysis
+# mcp__code-context__get_code_context(absolutePath="{{PROJECT_PATH}}")
+# mcp__code-reasoning__code-reasoning(thought="Analyze requirements for {{FUNCTION}}")
+#
+# STEP C: Documentation Lookup
+# mcp__context7__resolve-library-id(libraryName="{{LIBRARY}}")
+# mcp__context7__query-docs(libraryId="{{ID}}", query="{{SPECIFIC_QUESTION}}")
+#
+# STEP D: Implementation
+# mcp__serena__find_symbol(name_path_pattern="{{FUNCTION}}", include_body=true)
+# mcp__serena__replace_symbol_body(name_path="{{FUNCTION}}", body="{{NEW_CODE}}")
+#
+# STEP E: Store Solution
+# mcp__serena__write_memory("{{TOPIC}}.md", "{{SOLUTION_PATTERN}}")
+# mcp__cipher__ask_cipher("Store: {{PROJECT}} - {{FUNCTION}} implementation pattern")
+```
+
+### 11.3 Write Tests for New Code
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 11.3: WRITE TESTS FOR NEW CODE
+# Test generation alongside development
+# ═══════════════════════════════════════════════════════════════════════════
+
+generate_test_for_function() {
+  local module_name="$1"
+  local function_name="$2"
+  local project_path="${3:-$(pwd)}"
+
+  local test_dir="$project_path/tests"
+  local test_file="$test_dir/test_${module_name}.py"
+
+  echo "=== Generating tests for $function_name ==="
+
+  # Create tests directory if not exists
+  if [ ! -d "$test_dir" ]; then
+    mkdir -p "$test_dir"
+    touch "$test_dir/__init__.py"
+  fi
+
+  # Create test file if not exists
+  if [ ! -f "$test_file" ]; then
+    cat > "$test_file" << EOF
+"""Tests for ${module_name} module."""
+import pytest
+from {{PROJECT_NAME}}.${module_name} import *
+
+
+EOF
+    echo "Created test file: $test_file"
+  fi
+
+  # Check if test already exists
+  if grep -q "def test_${function_name}" "$test_file" 2>/dev/null; then
+    echo "Tests for $function_name already exist in $test_file"
+    return 0
+  fi
+
+  # Append test function template
+  cat >> "$test_file" << EOF
+
+class Test${function_name^}:
+    """Test suite for ${function_name} function."""
+
+    def test_${function_name}_happy_path(self):
+        """Test ${function_name} with valid inputs."""
+        # Arrange
+        # TODO: Set up test data based on function signature
+
+        # Act
+        result = ${function_name}()
+
+        # Assert
+        assert result is not None
+
+    def test_${function_name}_edge_cases(self):
+        """Test ${function_name} with edge cases."""
+        # Test empty inputs
+        # Test boundary values
+        # Test None handling
+        pass
+
+    def test_${function_name}_error_handling(self):
+        """Test ${function_name} error handling."""
+        # Test invalid inputs raise appropriate exceptions
+        with pytest.raises(ValueError):
+            ${function_name}(invalid_arg=None)
+
+EOF
+
+  echo "Generated test template for $function_name in $test_file"
+  echo "TODO: Implement actual test logic based on function behavior"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RUN TESTS FOR SPECIFIC FUNCTION
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_function_tests() {
+  local function_name="$1"
+  local env_name="${2:-{{ENV_NAME}}}"
+
+  echo "Running tests for $function_name..."
+
+  # Run pytest with function name filter
+  conda run -n "$env_name" pytest tests/ -v -k "$function_name" --tb=short
+
+  if [ $? -eq 0 ]; then
+    echo "✓ All tests for $function_name PASSED"
+    return 0
+  else
+    echo "✗ Tests for $function_name FAILED"
+    return 1
+  fi
+}
+```
+
+### 11.4 Verify Implementation
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 11.4: VERIFY IMPLEMENTATION
+# Comprehensive verification before closing task
+# ═══════════════════════════════════════════════════════════════════════════
+
+verify_implementation() {
+  local file_path="$1"
+  local function_name="$2"
+  local task_id="$3"
+  local env_name="${4:-{{ENV_NAME}}}"
+
+  echo "=== Verifying implementation of $function_name ==="
+
+  VERIFICATION_PASSED=true
+
+  # 1. Syntax check
+  echo "1. Syntax check..."
+  conda run -n "$env_name" python -m py_compile "$file_path"
+  if [ $? -ne 0 ]; then
+    echo "✗ Syntax check FAILED"
+    VERIFICATION_PASSED=false
+  else
+    echo "✓ Syntax check passed"
+  fi
+
+  # 2. Import check
+  echo "2. Import check..."
+  MODULE_NAME=$(basename "$file_path" .py)
+  conda run -n "$env_name" python -c "from {{PROJECT_NAME}}.$MODULE_NAME import $function_name; print('Import OK')" 2>/dev/null
+  if [ $? -ne 0 ]; then
+    echo "✗ Import check FAILED"
+    VERIFICATION_PASSED=false
+  else
+    echo "✓ Import check passed"
+  fi
+
+  # 3. Run tests
+  echo "3. Running tests..."
+  run_function_tests "$function_name" "$env_name"
+  if [ $? -ne 0 ]; then
+    echo "✗ Tests FAILED"
+    VERIFICATION_PASSED=false
+  else
+    echo "✓ Tests passed"
+  fi
+
+  # 4. Check for new gaps introduced
+  echo "4. Checking for new gaps..."
+  NEW_TODOS=$(grep -n "TODO\|FIXME\|NotImplementedError" "$file_path" 2>/dev/null | wc -l)
+  if [ "$NEW_TODOS" -gt 0 ]; then
+    echo "⚠ Warning: $NEW_TODOS new gaps found in $file_path"
+    # Create follow-up tasks for new gaps
+    grep -n "TODO\|FIXME" "$file_path" 2>/dev/null | while read line; do
+      LINENUM=$(echo "$line" | cut -d: -f1)
+      CONTENT=$(echo "$line" | cut -d: -f2-)
+      bd create \
+        --title="Follow-up TODO from $function_name" \
+        --type=task \
+        --priority=3 \
+        --description="Found while implementing $function_name
+Location: $file_path:$LINENUM
+Content: $CONTENT"
+    done
+  else
+    echo "✓ No new gaps introduced"
+  fi
+
+  # 5. Complete or fail the task
+  if [ "$VERIFICATION_PASSED" = true ]; then
+    echo ""
+    echo "=== VERIFICATION PASSED ==="
+    bd close "$task_id" --reason="Implemented and verified: $function_name"
+
+    # Store success in memory
+    # mcp__cipher__ask_cipher("Store: $function_name implemented successfully")
+    # mcp__serena__write_memory if new pattern discovered
+
+    return 0
+  else
+    echo ""
+    echo "=== VERIFICATION FAILED ==="
+    bd update "$task_id" --status=blocked
+    bd create \
+      --title="Fix verification failures for $function_name" \
+      --type=bug \
+      --priority=1 \
+      --description="Verification failed during Phase 11.4
+Function: $function_name
+File: $file_path
+Task: $task_id
+
+Review and fix the failing checks."
+    return 1
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DEVELOPMENT LOOP CONTROLLER
+# Runs the complete 11.1-11.4 workflow until no gaps remain
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_development_completion_loop() {
+  local project_path="${1:-$(pwd)}"
+  local max_iterations="${2:-50}"
+
+  echo "=== Starting Development Completion Loop ==="
+  echo "Project: $project_path"
+  echo "Max iterations: $max_iterations"
+
+  for i in $(seq 1 $max_iterations); do
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "ITERATION $i of $max_iterations"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Check for ready development tasks
+    READY_TASKS=$(bd ready 2>/dev/null | grep -c "^{{PROJECT_PREFIX}}-" || echo "0")
+
+    if [ "$READY_TASKS" -eq 0 ]; then
+      echo "No more ready tasks. Checking for blocked tasks..."
+      BLOCKED_TASKS=$(bd blocked 2>/dev/null | grep -c "^{{PROJECT_PREFIX}}-" || echo "0")
+
+      if [ "$BLOCKED_TASKS" -gt 0 ]; then
+        echo "⚠ $BLOCKED_TASKS blocked tasks remain"
+        echo "Review blockers with: bd blocked"
+        return 1
+      else
+        echo "✓ All development tasks complete!"
+        return 0
+      fi
+    fi
+
+    echo "Found $READY_TASKS ready tasks"
+
+    # Get next task
+    NEXT_TASK=$(bd ready 2>/dev/null | head -1 | awk '{print $1}')
+
+    if [ -z "$NEXT_TASK" ]; then
+      echo "No task ID found"
+      break
+    fi
+
+    echo "Working on: $NEXT_TASK"
+    bd show "$NEXT_TASK"
+
+    # The actual implementation would be done by the AI agent
+    # using the MCP tools described in 11.2-11.4
+    echo ""
+    echo ">>> AI agent implements $NEXT_TASK using MCP tools <<<"
+    echo ""
+
+    # For testing, mark as in_progress
+    bd update "$NEXT_TASK" --status=in_progress
+
+  done
+
+  echo "Development loop completed after $max_iterations iterations"
+}
+```
+
+---
+
+## PHASE 12: Test Execution Framework
+
+### 12.0 Overview
+
+Systematic testing after development completion:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TEST EXECUTION FRAMEWORK                                  │
+│                    (Phase 12: After Development Completion)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  TEST EXECUTION ORDER:                                                      │
+│  ├─ 12.1: Unit tests (fast feedback)                                       │
+│  ├─ 12.2: Integration tests (component interaction)                        │
+│  └─ 12.3: Functional testing (full system verification)                    │
+│                                                                             │
+│  COVERAGE REQUIREMENTS:                                                     │
+│  ├─ Minimum: 80% code coverage                                             │
+│  ├─ All NotImplementedError must be gone                                   │
+│  └─ All tests must pass (no skips without reason)                          │
+│                                                                             │
+│  TEST FRAMEWORK: pytest with coverage                                       │
+│  CONFIGURATION: pytest.ini, conftest.py                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.1 pytest Configuration Setup
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 12.1: PYTEST CONFIGURATION
+# Set up test framework for the project
+# ═══════════════════════════════════════════════════════════════════════════
+
+setup_test_framework() {
+  local project_path="${1:-$(pwd)}"
+  local project_name="{{PROJECT_NAME}}"
+  local env_name="${2:-{{ENV_NAME}}}"
+
+  echo "=== Setting up Test Framework ==="
+
+  # Install pytest and coverage if not present
+  conda run -n "$env_name" pip install pytest pytest-cov pytest-xdist pytest-timeout 2>/dev/null
+
+  # Create pytest.ini
+  if [ ! -f "$project_path/pytest.ini" ]; then
+    cat > "$project_path/pytest.ini" << EOF
+[pytest]
+testpaths = tests
+python_files = test_*.py *_test.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --cov=${project_name} --cov-report=term-missing --cov-fail-under=80
+minversion = 7.0
+filterwarnings =
+    ignore::DeprecationWarning
+    ignore::PendingDeprecationWarning
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
+    e2e: marks tests as end-to-end tests
+timeout = 300
+EOF
+    echo "Created pytest.ini"
+  fi
+
+  # Create conftest.py with common fixtures
+  if [ ! -f "$project_path/tests/conftest.py" ]; then
+    mkdir -p "$project_path/tests"
+    cat > "$project_path/tests/conftest.py" << 'EOF'
+"""Common test fixtures and configuration."""
+import pytest
+import sys
+from pathlib import Path
+
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
+@pytest.fixture
+def project_root():
+    """Return the project root directory."""
+    return PROJECT_ROOT
+
+
+@pytest.fixture
+def sample_data():
+    """Provide sample test data."""
+    return {
+        "test_string": "hello world",
+        "test_number": 42,
+        "test_list": [1, 2, 3],
+        "test_dict": {"key": "value"},
+    }
+
+
+@pytest.fixture
+def mock_env(monkeypatch):
+    """Fixture to mock environment variables."""
+    def _mock_env(**kwargs):
+        for key, value in kwargs.items():
+            monkeypatch.setenv(key, value)
+    return _mock_env
+
+
+@pytest.fixture
+def temp_file(tmp_path):
+    """Create a temporary file for testing."""
+    def _temp_file(content="", suffix=".txt"):
+        file_path = tmp_path / f"test_file{suffix}"
+        file_path.write_text(content)
+        return file_path
+    return _temp_file
+EOF
+    echo "Created tests/conftest.py"
+  fi
+
+  # Create __init__.py
+  touch "$project_path/tests/__init__.py"
+
+  echo "Test framework setup complete"
+}
+```
+
+### 12.2 Test Execution Commands
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 12.2: TEST EXECUTION
+# Run tests in the correct order with proper reporting
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_full_test_suite() {
+  local project_path="${1:-$(pwd)}"
+  local env_name="${2:-{{ENV_NAME}}}"
+
+  echo "=== Running Full Test Suite ==="
+  echo "Project: $project_path"
+  echo "Environment: $env_name"
+  echo ""
+
+  cd "$project_path"
+
+  UNIT_RESULT=0
+  INTEGRATION_RESULT=0
+  E2E_RESULT=0
+  COVERAGE_RESULT=0
+
+  # 1. Unit tests (fast, run first)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "STEP 1: Unit Tests"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [ -d "tests/unit" ]; then
+    conda run -n "$env_name" pytest tests/unit/ -v --tb=short
+    UNIT_RESULT=$?
+  else
+    # Run all tests except integration and e2e
+    conda run -n "$env_name" pytest tests/ -v --tb=short \
+      --ignore=tests/integration --ignore=tests/e2e -m "not integration and not e2e" 2>/dev/null || \
+    conda run -n "$env_name" pytest tests/ -v --tb=short
+    UNIT_RESULT=$?
+  fi
+
+  if [ $UNIT_RESULT -eq 0 ]; then
+    echo "✓ Unit tests PASSED"
+  else
+    echo "✗ Unit tests FAILED"
+  fi
+
+  # 2. Integration tests (if exist)
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "STEP 2: Integration Tests"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [ -d "tests/integration" ]; then
+    conda run -n "$env_name" pytest tests/integration/ -v --tb=short -m integration 2>/dev/null || \
+    conda run -n "$env_name" pytest tests/integration/ -v --tb=short
+    INTEGRATION_RESULT=$?
+    if [ $INTEGRATION_RESULT -eq 0 ]; then
+      echo "✓ Integration tests PASSED"
+    else
+      echo "✗ Integration tests FAILED"
+    fi
+  else
+    echo "⊘ No integration tests directory (tests/integration/)"
+    INTEGRATION_RESULT=0
+  fi
+
+  # 3. E2E tests (if exist)
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "STEP 3: End-to-End Tests"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [ -d "tests/e2e" ]; then
+    conda run -n "$env_name" pytest tests/e2e/ -v --tb=short -m e2e 2>/dev/null || \
+    conda run -n "$env_name" pytest tests/e2e/ -v --tb=short
+    E2E_RESULT=$?
+    if [ $E2E_RESULT -eq 0 ]; then
+      echo "✓ E2E tests PASSED"
+    else
+      echo "✗ E2E tests FAILED"
+    fi
+  else
+    echo "⊘ No E2E tests directory (tests/e2e/)"
+    E2E_RESULT=0
+  fi
+
+  # 4. Coverage report
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "STEP 4: Coverage Report"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  conda run -n "$env_name" pytest tests/ --cov={{PROJECT_NAME}} \
+    --cov-report=term-missing --cov-fail-under=80 --no-header -q 2>/dev/null
+
+  COVERAGE_RESULT=$?
+
+  # Extract coverage percentage
+  COVERAGE=$(conda run -n "$env_name" pytest tests/ --cov={{PROJECT_NAME}} \
+    --cov-report=term 2>/dev/null | grep "TOTAL" | awk '{print $NF}' | tr -d '%')
+
+  if [ -n "$COVERAGE" ]; then
+    echo "Coverage: ${COVERAGE}%"
+    if [ "${COVERAGE:-0}" -ge 80 ]; then
+      echo "✓ Coverage requirement met (>= 80%)"
+    else
+      echo "✗ Coverage below 80% threshold"
+    fi
+  fi
+
+  # Summary
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "TEST SUMMARY"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Unit Tests:        $([ $UNIT_RESULT -eq 0 ] && echo '✓ PASS' || echo '✗ FAIL')"
+  echo "Integration Tests: $([ $INTEGRATION_RESULT -eq 0 ] && echo '✓ PASS' || echo '✗ FAIL')"
+  echo "E2E Tests:         $([ $E2E_RESULT -eq 0 ] && echo '✓ PASS' || echo '✗ FAIL')"
+  echo "Coverage:          $([ $COVERAGE_RESULT -eq 0 ] && echo "✓ ${COVERAGE:-?}%" || echo "✗ Below 80%")"
+
+  if [ $UNIT_RESULT -eq 0 ] && [ $INTEGRATION_RESULT -eq 0 ] && [ $E2E_RESULT -eq 0 ] && [ $COVERAGE_RESULT -eq 0 ]; then
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "              ALL TESTS PASSED ✓"
+    echo "═══════════════════════════════════════════════════════"
+    return 0
+  else
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "              TESTS FAILED ✗"
+    echo "═══════════════════════════════════════════════════════"
+    return 1
+  fi
+}
+```
+
+### 12.3 Functional Verification
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 12.3: FUNCTIONAL VERIFICATION
+# Test that the project actually works end-to-end
+# ═══════════════════════════════════════════════════════════════════════════
+
+verify_functionality() {
+  local project_path="${1:-$(pwd)}"
+  local env_name="${2:-{{ENV_NAME}}}"
+  local port="${3:-{{PORT_START}}}"
+
+  echo "=== Functional Verification ==="
+  echo "Project: $project_path"
+  echo "Environment: $env_name"
+  echo ""
+
+  cd "$project_path"
+
+  FUNC_PASSED=0
+  FUNC_TOTAL=0
+
+  # 1. Test core imports
+  echo "--- 1. Core Imports ---"
+  ((FUNC_TOTAL++))
+  conda run -n "$env_name" python -c "
+from {{PROJECT_NAME}} import *
+print('Core imports: OK')
+"
+  if [ $? -eq 0 ]; then
+    echo "✓ Core imports work"
+    ((FUNC_PASSED++))
+  else
+    echo "✗ Core imports FAILED"
+  fi
+
+  # 2. Test main entry point (if exists)
+  echo ""
+  echo "--- 2. Entry Point ---"
+  if [ -f "$project_path/main.py" ]; then
+    ((FUNC_TOTAL++))
+    conda run -n "$env_name" python "$project_path/main.py" --help 2>/dev/null
+    if [ $? -eq 0 ]; then
+      echo "✓ main.py --help works"
+      ((FUNC_PASSED++))
+    else
+      echo "✗ main.py --help FAILED"
+    fi
+  elif [ -f "$project_path/cli.py" ]; then
+    ((FUNC_TOTAL++))
+    conda run -n "$env_name" python "$project_path/cli.py" --help 2>/dev/null
+    if [ $? -eq 0 ]; then
+      echo "✓ cli.py --help works"
+      ((FUNC_PASSED++))
+    else
+      echo "✗ cli.py --help FAILED"
+    fi
+  else
+    echo "⊘ No main.py or cli.py entry point"
+  fi
+
+  # 3. Test web service (if exists)
+  echo ""
+  echo "--- 3. Web Service ---"
+  if [ -f "$project_path/app.py" ] || grep -rq "FastAPI\|Flask\|uvicorn" "$project_path"/*.py 2>/dev/null; then
+    ((FUNC_TOTAL++))
+    echo "Web service detected, starting for health check..."
+
+    # Start server in background
+    conda run -n "$env_name" python -c "
+import subprocess
+import requests
+import time
+import sys
+import os
+
+# Find the app file
+app_file = None
+for f in ['app.py', 'main.py', 'server.py']:
+    if os.path.exists(f):
+        app_file = f
+        break
+
+if not app_file:
+    print('No app file found')
+    sys.exit(1)
+
+# Start server
+proc = subprocess.Popen(
+    [sys.executable, app_file],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE
+)
+
+# Wait for startup
+time.sleep(5)
+
+# Health check
+try:
+    resp = requests.get('http://localhost:$port/health', timeout=5)
+    print(f'Health check: {resp.status_code}')
+    success = resp.status_code == 200
+except Exception as e:
+    # Try root path
+    try:
+        resp = requests.get('http://localhost:$port/', timeout=5)
+        print(f'Root check: {resp.status_code}')
+        success = resp.status_code in [200, 404]  # 404 is ok, means server runs
+    except:
+        print('Health check: FAILED')
+        success = False
+finally:
+    proc.terminate()
+    proc.wait()
+
+sys.exit(0 if success else 1)
+" 2>/dev/null
+
+    if [ $? -eq 0 ]; then
+      echo "✓ Web service health check passed"
+      ((FUNC_PASSED++))
+    else
+      echo "✗ Web service health check FAILED"
+    fi
+  else
+    echo "⊘ No web service detected"
+  fi
+
+  # 4. Test database connection (if applicable)
+  echo ""
+  echo "--- 4. Database Connection ---"
+  if grep -rq "sqlalchemy\|mysql\|postgres\|sqlite" "$project_path"/*.py 2>/dev/null; then
+    ((FUNC_TOTAL++))
+    conda run -n "$env_name" python -c "
+# Attempt to import database module and test connection
+try:
+    from {{PROJECT_NAME}} import db, database, models
+    print('Database module: OK')
+except ImportError:
+    print('Database module: OK (no dedicated db module)')
+" 2>/dev/null
+
+    if [ $? -eq 0 ]; then
+      echo "✓ Database modules accessible"
+      ((FUNC_PASSED++))
+    else
+      echo "✗ Database modules FAILED"
+    fi
+  else
+    echo "⊘ No database configuration detected"
+  fi
+
+  # 5. Test GPU/CUDA (if applicable)
+  echo ""
+  echo "--- 5. GPU/CUDA ---"
+  if grep -rq "torch\|cuda\|gpu" "$project_path"/*.py 2>/dev/null; then
+    ((FUNC_TOTAL++))
+    conda run -n "$env_name" python -c "
+import torch
+assert torch.cuda.is_available(), 'CUDA not available'
+print(f'CUDA: {torch.cuda.get_device_name(0)}')
+print(f'Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB')
+" 2>/dev/null
+
+    if [ $? -eq 0 ]; then
+      echo "✓ GPU/CUDA accessible"
+      ((FUNC_PASSED++))
+    else
+      echo "✗ GPU/CUDA FAILED"
+    fi
+  else
+    echo "⊘ No GPU/CUDA requirements detected"
+  fi
+
+  # Summary
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "FUNCTIONAL VERIFICATION: $FUNC_PASSED / $FUNC_TOTAL passed"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [ "$FUNC_PASSED" -eq "$FUNC_TOTAL" ]; then
+    echo "✓ All functional checks PASSED"
+    return 0
+  else
+    echo "✗ Some functional checks FAILED"
+    return 1
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPLETE TEST AND VERIFICATION WORKFLOW
+# Run all Phase 12 checks in sequence
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_complete_verification() {
+  local project_path="${1:-$(pwd)}"
+  local env_name="${2:-{{ENV_NAME}}}"
+
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "                    PHASE 12: COMPLETE VERIFICATION"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo ""
+
+  # Setup test framework
+  setup_test_framework "$project_path" "$env_name"
+
+  # Run test suite
+  run_full_test_suite "$project_path" "$env_name"
+  TEST_RESULT=$?
+
+  echo ""
+
+  # Run functional verification
+  verify_functionality "$project_path" "$env_name"
+  FUNC_RESULT=$?
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "                    VERIFICATION SUMMARY"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "Test Suite:              $([ $TEST_RESULT -eq 0 ] && echo '✓ PASSED' || echo '✗ FAILED')"
+  echo "Functional Verification: $([ $FUNC_RESULT -eq 0 ] && echo '✓ PASSED' || echo '✗ FAILED')"
+  echo ""
+
+  if [ $TEST_RESULT -eq 0 ] && [ $FUNC_RESULT -eq 0 ]; then
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    echo "                    PROJECT READY FOR DEPLOYMENT ✓"
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    return 0
+  else
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    echo "                    PROJECT NOT READY - FIX FAILURES"
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    return 1
+  fi
+}
 ```
 
 ---
