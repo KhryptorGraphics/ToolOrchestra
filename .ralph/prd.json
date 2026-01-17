@@ -1,0 +1,130 @@
+{
+  "project": "ToolOrchestra",
+  "version": "1.1",
+  "platform": {
+    "device": "Jetson Thor",
+    "jetpack": "7.4",
+    "cuda": "13.0",
+    "driver": "580.00",
+    "python": "3.12.12"
+  },
+  "environments": {
+    "toolorchestra": "Main development - training, evaluation, core packages",
+    "vllm1": "Inference server - vLLM, Flash Attention",
+    "retriever": "Search/retrieval - faiss, sentence-transformers (already working)"
+  },
+  "ports": {
+    "vllm": 18000,
+    "tau2_api": 18010,
+    "ray_dashboard": 18020,
+    "wandb": 18030
+  },
+  "index_url": "https://pypi.jetson-ai-lab.io/sbsa/cu130/",
+  "tasks": [
+    {
+      "id": "phase-1-pytorch-toolorchestra",
+      "title": "Install PyTorch CUDA 13.0 in toolorchestra",
+      "environment": "toolorchestra",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n toolorchestra pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/"
+      ],
+      "verification": "conda run -n toolorchestra python -c \"import torch; assert torch.cuda.is_available(); print(f'CUDA {torch.version.cuda}')\"",
+      "dependencies": []
+    },
+    {
+      "id": "phase-1b-pytorch-vllm1",
+      "title": "Fix PyTorch CUDA 13.0 in vllm1",
+      "environment": "vllm1",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n vllm1 pip uninstall -y torch torchvision torchaudio",
+        "conda run -n vllm1 pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/"
+      ],
+      "verification": "conda run -n vllm1 python -c \"import torch; assert torch.cuda.is_available(); print(f'vllm1 CUDA {torch.version.cuda}')\"",
+      "dependencies": []
+    },
+    {
+      "id": "phase-2-flash-attn",
+      "title": "Install Flash Attention 2.8.4 in both environments",
+      "environment": "toolorchestra, vllm1",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n toolorchestra pip uninstall -y flash-attn",
+        "conda run -n toolorchestra pip install flash-attn==2.8.4 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/",
+        "conda run -n vllm1 pip uninstall -y flash-attn flashinfer-python",
+        "conda run -n vllm1 pip install flash-attn==2.8.4 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/"
+      ],
+      "verification": "conda run -n toolorchestra python -c \"from flash_attn import flash_attn_func; print('toolorchestra OK')\" && conda run -n vllm1 python -c \"from flash_attn import flash_attn_func; print('vllm1 OK')\"",
+      "dependencies": ["phase-1-pytorch-toolorchestra", "phase-1b-pytorch-vllm1"]
+    },
+    {
+      "id": "phase-3-vllm",
+      "title": "Install vLLM 0.13.0+cu130 in both environments",
+      "environment": "toolorchestra, vllm1",
+      "beads_id": null,
+      "status": "pending",
+      "commands": [
+        "conda run -n vllm1 pip uninstall -y vllm",
+        "conda run -n toolorchestra pip install vllm==0.13.0+cu130 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/",
+        "conda run -n vllm1 pip install vllm==0.13.0+cu130 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/"
+      ],
+      "verification": "conda run -n toolorchestra python -c \"from vllm import LLM; print('toolorchestra OK')\" && conda run -n vllm1 python -c \"from vllm import LLM; print('vllm1 OK')\"",
+      "dependencies": ["phase-2-flash-attn"]
+    },
+    {
+      "id": "phase-4-core-packages",
+      "title": "Install Core ML Packages in toolorchestra",
+      "environment": "toolorchestra",
+      "beads_id": "TO-jeu",
+      "status": "pending",
+      "commands": [
+        "conda run -n toolorchestra pip install cupy==13.6.0 --index-url https://pypi.jetson-ai-lab.io/sbsa/cu130/",
+        "See filtered requirements installation in plan"
+      ],
+      "verification": "conda run -n toolorchestra python -c \"import transformers, accelerate, datasets, ray, wandb, hydra; print('Core ML OK')\"",
+      "dependencies": ["phase-3-vllm"]
+    },
+    {
+      "id": "phase-5-project-packages",
+      "title": "Install Project Packages Editable in toolorchestra",
+      "environment": "toolorchestra",
+      "beads_id": "TO-017",
+      "status": "in_progress",
+      "commands": [
+        "cd /home/kp/repo-nvidia/ToolOrchestra/evaluation/tau2-bench && conda run -n toolorchestra pip install -e .",
+        "cd /home/kp/repo-nvidia/ToolOrchestra/training/rollout && conda run -n toolorchestra pip install -e .",
+        "cd /home/kp/repo-nvidia/ToolOrchestra/training && conda run -n toolorchestra pip install -e ."
+      ],
+      "verification": "conda run -n toolorchestra python -c \"import tau2, verl; print('Project packages OK')\"",
+      "dependencies": ["phase-4-core-packages"]
+    },
+    {
+      "id": "phase-6-env-vars",
+      "title": "Configure Environment Variables and Ports",
+      "environment": "system-wide",
+      "beads_id": "TO-yb6",
+      "status": "pending",
+      "commands": [
+        "See bashrc configuration in plan (includes port configuration for 18000-18040)"
+      ],
+      "verification": "source ~/.bashrc && test -n \"$CUDA_HOME\" && test -d \"$INDEX_DIR\" && test -n \"$TOOLORCHESTRA_VLLM_PORT\"",
+      "dependencies": []
+    },
+    {
+      "id": "phase-7-verification",
+      "title": "Final Verification (all 3 environments)",
+      "environment": "toolorchestra, vllm1, retriever",
+      "beads_id": "TO-11e",
+      "status": "pending",
+      "commands": [
+        "See verification test suite in plan (tests all 3 environments)"
+      ],
+      "verification": "All CUDA and ML imports successful in toolorchestra, vllm1, retriever",
+      "dependencies": ["phase-5-project-packages", "phase-6-env-vars"]
+    }
+  ]
+}

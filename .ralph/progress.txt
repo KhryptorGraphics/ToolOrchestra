@@ -1,0 +1,70 @@
+# ToolOrchestra Deployment Progress
+# Jetson Thor | JetPack 7.4 | CUDA 13.0
+# Started: 2026-01-17 02:20 CST
+
+## Key Discovery: Jetson AI Lab Mirror
+
+NVIDIA provides pre-built CUDA 13.0 wheels at:
+https://pypi.jetson-ai-lab.io/sbsa/cu130/
+
+Available packages:
+- torch==2.9.1 (CUDA 13.0)
+- flash-attn==2.8.4 (pre-built!)
+- vllm==0.13.0+cu130 (pre-built!)
+- cupy==13.6.0
+
+This eliminates 4+ hours of source builds.
+
+## Previous Session Notes
+
+CPU-only PyTorch was installed by Auggie's session.
+Current state: torch==2.9.1+cpu (CUDA not available)
+Flash Attention 2.7.4.post1 built against CPU PyTorch (broken)
+
+## Platform Patterns
+
+- Compute Capability: SM 100 (Thor)
+- CUDA_HOME: /usr/local/cuda-13.0
+- conda environment: toolorchestra
+- Python: 3.12.12
+
+---
+
+## Execution Log
+
+### 2026-01-17 02:42 CST - DEPLOYMENT COMPLETE
+
+**All 13 Beads tasks closed successfully**
+
+#### Verified Components:
+
+**toolorchestra environment:**
+- PyTorch 2.9.1 CUDA 13.0 ✓
+- Flash Attention 2.8.4 ✓
+- vLLM 0.13.0+cu130 ✓
+- CuPy 13.6.0 ✓
+- Core ML packages (transformers, accelerate, datasets, ray, wandb, hydra) ✓
+- Project packages (tau2, verl) ✓
+- GPU matrix multiplication verified ✓
+- Flash Attention CUDA kernel verified ✓
+
+**vllm1 environment:**
+- PyTorch 2.9.1 CUDA 13.0 ✓
+- Flash Attention 2.8.4 ✓
+- vLLM 0.13.0+cu130 ✓
+
+**retriever environment:**
+- PyTorch 2.9.1a0+gitd38164a CUDA 13.0 ✓
+- FAISS 1.9.0 ✓
+
+**Environment Variables:**
+- Configured in ~/.profile (available in all login shells)
+- HF_HOME, REPO_PATH, INDEX_DIR, CKPT_DIR, CUDA_HOME
+- Port configuration: 18000-18030
+
+**Note:** Environment variables require `source ~/.profile` or new login shell to take effect.
+
+---
+
+SUCCESS: ToolOrchestra deployment on Jetson Thor complete!
+
