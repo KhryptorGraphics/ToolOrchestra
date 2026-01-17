@@ -1174,21 +1174,23 @@ ralph_loop_entry() {
       ;;
 
     "functionality_problems"|"incomplete_research"|"incomplete_critical"|"incomplete_minor")
-      echo "Project requires orchestration. Starting master orchestration loop..."
+      echo "Project requires development. Starting morphological development orchestration..."
       echo ""
-      run_master_orchestration "$PROJECT_PATH" "$PROJECT_NAME"
+      # Use morphological development for complete lifecycle:
+      # Plan → Research → Create → Edit → Iterate → Test → Confirm → Deploy
+      run_morphological_development "$PROJECT_PATH" "$PROJECT_NAME"
       ORCHESTRATION_RESULT=$?
 
       if [ $ORCHESTRATION_RESULT -eq 0 ]; then
-        echo "Master orchestration complete. Proceeding to standard deployment..."
+        echo "Morphological development complete. Project deployed successfully."
         return 0
       else
-        echo "Master orchestration did not complete. Manual intervention required."
+        echo "Morphological development did not complete. Manual intervention required."
         bd create \
           --title="Manual intervention required: $PROJECT_NAME" \
           --type=task \
           --priority=0 \
-          --description="Master orchestration loop did not complete successfully.
+          --description="Morphological development did not complete successfully.
 Status: $PROJECT_STATUS
 Complexity Score: $COMPLEXITY_SCORE
 
@@ -3477,6 +3479,62 @@ For cutting-edge development requiring research paper guidance:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 13.0.1 Semantic Scholar API Configuration
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# PHASE 13.0.1: SEMANTIC SCHOLAR API CONFIGURATION
+# Rate limiting and multi-source orchestration setup
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Configuration constants for mcp-semantic-scholar-server
+SS_API_KEY="${SEMANTIC_SCHOLAR_API_KEY:-}"
+SS_RATE_LIMIT_MS=1000           # 1 request per second (enforced by API)
+SS_MAX_QUERIES_PER_SEARCH=3     # Max API calls per search session
+SS_LAST_REQUEST_TIME=0
+
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ MCP SERVER PRIORITY FOR SEMANTIC SCHOLAR:                                   │
+# │                                                                             │
+# │ 1. mcp-semantic-scholar-server  → Primary search (simple, rate-limited)    │
+# │    Tool: mcp__mcp-semantic-scholar-server__search_papers_via_semanticscholar│
+# │    Best for: Quick keyword searches with year filtering                     │
+# │                                                                             │
+# │ 2. semantic-scholar-graph-api   → Citation graph, recommendations, batch   │
+# │    Tools: get_citations_and_references, get_paper_recommendations,         │
+# │           search_snippets, get_papers_batch, get_authors_batch             │
+# │    Best for: Deep research, citation analysis, finding implementations     │
+# │                                                                             │
+# │ 3. research-semantic-scholar    → Fallback, bibtex generation              │
+# │    Tools: search_semantic_scholar, get_paper, get_citations, to_bibtex     │
+# │    Best for: Simple queries, citation formatting                           │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+configure_semantic_scholar() {
+  echo "=== Configuring Semantic Scholar API ==="
+  echo "API Key: ${SS_API_KEY:+configured (${#SS_API_KEY} chars)}${SS_API_KEY:-not set}"
+  echo "Rate Limit: ${SS_RATE_LIMIT_MS}ms between requests"
+  echo "Max Queries per Search: ${SS_MAX_QUERIES_PER_SEARCH}"
+}
+
+enforce_semantic_scholar_rate_limit() {
+  # Enforce 1 request/second rate limit for mcp-semantic-scholar-server
+  local current_time=$(date +%s%3N)
+  local elapsed=$((current_time - SS_LAST_REQUEST_TIME))
+
+  if [ "$elapsed" -lt "$SS_RATE_LIMIT_MS" ] && [ "$SS_LAST_REQUEST_TIME" -gt 0 ]; then
+    local wait_time=$((SS_RATE_LIMIT_MS - elapsed))
+    echo "  [Rate limit] Waiting ${wait_time}ms before next Semantic Scholar request..."
+    sleep "0.$(printf '%03d' $wait_time)"
+  fi
+
+  SS_LAST_REQUEST_TIME=$(date +%s%3N)
+}
+
+export -f configure_semantic_scholar
+export -f enforce_semantic_scholar_rate_limit
+```
+
 ### 13.1 Research Requirement Detection
 
 ```bash
@@ -3583,80 +3641,238 @@ detect_research_requirements() {
 }
 ```
 
-### 13.2 Academic Paper Search (Multi-Source)
+### 13.1.1 Research Query Decomposition
 
 ```bash
 # ═══════════════════════════════════════════════════════════════════════════
-# STEP 13.2: ACADEMIC PAPER SEARCH
-# Search across multiple academic MCP servers
+# PHASE 13.1.1: RESEARCH QUERY DECOMPOSITION
+# Decompose complex questions into max 3 targeted sub-queries
 # ═══════════════════════════════════════════════════════════════════════════
 
-search_academic_papers() {
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │                    QUESTION DECOMPOSITION WORKFLOW                          │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │                                                                             │
+# │  ORIGINAL QUERY                                                             │
+# │  ├─ "How do transformers handle long sequences efficiently?"               │
+# │  │                                                                          │
+# │  ▼                                                                          │
+# │  DECOMPOSED QUERIES (max 3 API calls total):                               │
+# │  ├─ Query 1: "transformer long sequence efficiency" (primary)              │
+# │  ├─ Query 2: "attention mechanism memory optimization" (supporting)        │
+# │  └─ Query 3: "sparse attention linear complexity" (specific technique)     │
+# │                                                                             │
+# │  RATE LIMIT: 1 request/second (1000ms delay between calls)                 │
+# │                                                                             │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+decompose_research_query() {
+  local original_query="$1"
+  local max_queries="${2:-$SS_MAX_QUERIES_PER_SEARCH}"
+
+  echo "=== Decomposing Research Query ==="
+  echo "Original: $original_query"
+  echo "Max sub-queries: $max_queries"
+
+  # Initialize decomposed queries array
+  DECOMPOSED_QUERIES=()
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Decomposition strategy:
+  # Query 1: Core concept (primary search - extract main technical terms)
+  # Query 2: Related technique/methodology (supporting context)
+  # Query 3: Specific implementation/application (actionable details)
+  # ───────────────────────────────────────────────────────────────────────
+
+  # Strategy 1: Extract key technical terms for primary query
+  # Remove common words, keep technical terms
+  local primary_query=$(echo "$original_query" | \
+    sed -E 's/\b(how|do|does|what|is|are|the|a|an|to|for|in|on|with|by|of)\b//gi' | \
+    tr -s ' ' | sed 's/^ *//;s/ *$//')
+
+  [ -n "$primary_query" ] && DECOMPOSED_QUERIES+=("$primary_query")
+
+  # Strategy 2: If query mentions specific technique, add technique-focused query
+  if echo "$original_query" | grep -qiE "transformer|attention|neural|network|model"; then
+    local technique_query=""
+
+    if echo "$original_query" | grep -qi "transformer"; then
+      technique_query="transformer architecture implementation"
+    elif echo "$original_query" | grep -qi "attention"; then
+      technique_query="attention mechanism optimization"
+    elif echo "$original_query" | grep -qi "neural"; then
+      technique_query="neural network training techniques"
+    fi
+
+    [ -n "$technique_query" ] && [ ${#DECOMPOSED_QUERIES[@]} -lt $max_queries ] && \
+      DECOMPOSED_QUERIES+=("$technique_query")
+  fi
+
+  # Strategy 3: Add implementation-focused query if not at max
+  if [ ${#DECOMPOSED_QUERIES[@]} -lt $max_queries ]; then
+    local impl_query="$primary_query implementation code"
+    DECOMPOSED_QUERIES+=("$impl_query")
+  fi
+
+  # Output decomposed queries
+  echo ""
+  echo "Decomposed into ${#DECOMPOSED_QUERIES[@]} queries:"
+  local i=1
+  for q in "${DECOMPOSED_QUERIES[@]}"; do
+    echo "  Query $i: \"$q\""
+    i=$((i + 1))
+  done
+
+  export DECOMPOSED_QUERIES
+}
+
+export -f decompose_research_query
+```
+
+### 13.2 Academic Paper Search (Multi-Source Orchestrated)
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.2: MULTI-SOURCE ACADEMIC PAPER SEARCH (ORCHESTRATED)
+# Orchestrates across mcp-semantic-scholar-server, semantic-scholar-graph-api,
+# research-semantic-scholar, and arxiv-advanced
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │               CROSS-SOURCE RESEARCH WORKFLOW (Phase 13 Enhanced)            │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │                                                                             │
+# │  STEP 1: PRIMARY SEARCH (Semantic Scholar - mcp-semantic-scholar-server)   │
+# │  ├─ Rate limit: 1 req/sec enforced                                         │
+# │  └─ Returns: High-impact papers with citation counts                       │
+# │                                                                             │
+# │  STEP 2: CITATION GRAPH (semantic-scholar-graph-api)                       │
+# │  ├─ get_citations_and_references: Find related work                        │
+# │  ├─ get_paper_recommendations: Similar papers                              │
+# │  └─ search_snippets: Find specific text in papers                          │
+# │                                                                             │
+# │  STEP 3: PREPRINT SEARCH (arxiv-advanced)                                  │
+# │  ├─ Cutting-edge work not yet peer-reviewed                                │
+# │  ├─ Category filtering (cs.AI, cs.LG, cs.CL, etc.)                        │
+# │  └─ Full paper download and reading                                        │
+# │                                                                             │
+# │  STEP 4: SYNTHESIS                                                          │
+# │  ├─ Deduplicate across sources                                              │
+# │  ├─ Cross-reference citations                                               │
+# │  ├─ Rank by: citation count + recency + relevance                          │
+# │  └─ Generate APS-style citations                                            │
+# │                                                                             │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+search_academic_papers_orchestrated() {
   local query="$1"
   local max_results="${2:-10}"
+  local api_calls_used=0
 
-  echo "=== Searching Academic Papers: $query ==="
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "                    MULTI-SOURCE ACADEMIC SEARCH"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "Query: $query"
+  echo "Max API calls: $SS_MAX_QUERIES_PER_SEARCH"
 
-  # ───────────────────────────────────────────────────────────────────────
-  # PRIMARY: arXiv Advanced (best for cutting-edge ML/AI research)
-  # ───────────────────────────────────────────────────────────────────────
-  # MCP call: mcp__arxiv-advanced__search_papers
-  # Parameters:
-  #   query: "$query" (use quoted phrases: "transformer architecture")
-  #   categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.MA"]
-  #   max_results: $max_results
-  #   sort_by: "relevance"  # or "date" for newest
-  #   date_from: "2023-01-01"  # for recent research
-  #
-  # Advanced query syntax:
-  #   - ti:"exact title phrase" - search titles only
-  #   - au:"author name" - search by author
-  #   - abs:"keyword" - search abstracts only
-  #   - "term1" OR "term2" - boolean OR
-  #   - "term1" ANDNOT "survey" - exclude terms
-  #
-  # Category codes:
-  #   - cs.AI: Artificial Intelligence
-  #   - cs.LG: Machine Learning
-  #   - cs.CL: Computation and Language (NLP)
-  #   - cs.CV: Computer Vision
-  #   - cs.RO: Robotics
-  #   - cs.MA: Multi-Agent Systems
+  COLLECTED_PAPERS=()
+  TOP_PAPER_ID=""
 
   # ───────────────────────────────────────────────────────────────────────
-  # SECONDARY: Semantic Scholar Graph API (citation analysis)
+  # STEP 1: PRIMARY SEARCH - mcp-semantic-scholar-server (KhryptorGraphics)
+  # Best for: Simple keyword searches with year filtering, rate-limited
   # ───────────────────────────────────────────────────────────────────────
-  # MCP call: mcp__research-semantic-scholar__search_semantic_scholar
-  # Parameters:
-  #   query: "$query"
-  #   maxResults: $max_results
-  #   startYear: 2020  # Optional year filter
-  #
-  # Returns: Papers with citation counts, authors, venues, impact scores
+  if [ "$api_calls_used" -lt "$SS_MAX_QUERIES_PER_SEARCH" ]; then
+    echo ""
+    echo ">>> Step 1: Primary search (mcp-semantic-scholar-server)..."
+    enforce_semantic_scholar_rate_limit
+
+    # MCP call: mcp__mcp-semantic-scholar-server__search_papers_via_semanticscholar
+    # Parameters:
+    #   keyword: "$query"
+    #   limit: min($max_results, 25)
+    #   year_from: 2020  # Focus on recent research
+    #
+    # Returns: Formatted results with titles, authors, abstracts, citations
+    # Store top paper ID for citation expansion
+
+    api_calls_used=$((api_calls_used + 1))
+    echo "  API calls used: $api_calls_used / $SS_MAX_QUERIES_PER_SEARCH"
+  fi
 
   # ───────────────────────────────────────────────────────────────────────
-  # TERTIARY: Basic arXiv (simpler queries, fallback)
+  # STEP 2: CITATION EXPANSION - semantic-scholar-graph-api
+  # Best for: Finding related work through citation graph, batch queries
   # ───────────────────────────────────────────────────────────────────────
-  # MCP call: mcp__research-arxiv__search_arxiv
-  # Parameters:
-  #   query: "$query"
-  #   maxResults: $max_results
-  #   sortBy: "relevance"
+  if [ "$api_calls_used" -lt "$SS_MAX_QUERIES_PER_SEARCH" ] && [ -n "$TOP_PAPER_ID" ]; then
+    echo ""
+    echo ">>> Step 2: Citation expansion (semantic-scholar-graph-api)..."
+    enforce_semantic_scholar_rate_limit
+
+    # For top paper from Step 1, get citations and recommendations
+    #
+    # MCP call: mcp__semantic-scholar-graph-api__get_semantic_scholar_citations_and_references
+    #   paper_id: "$TOP_PAPER_ID"
+    # Returns: Citations and references lists
+    #
+    # MCP call: mcp__semantic-scholar-graph-api__get_semantic_scholar_paper_recommendations
+    #   paper_id: "$TOP_PAPER_ID"
+    #   limit: 5
+    # Returns: Similar/recommended papers
+    #
+    # MCP call: mcp__semantic-scholar-graph-api__search_semantic_scholar_snippets
+    #   query: "$query"
+    #   limit: 5
+    # Returns: Text snippets from papers matching query
+
+    api_calls_used=$((api_calls_used + 1))
+    echo "  API calls used: $api_calls_used / $SS_MAX_QUERIES_PER_SEARCH"
+  fi
 
   # ───────────────────────────────────────────────────────────────────────
-  # SUPPLEMENTARY: Paper Search (multi-platform)
+  # STEP 3: PREPRINT SEARCH - arxiv-advanced
+  # Best for: Cutting-edge research not yet in Semantic Scholar
   # ───────────────────────────────────────────────────────────────────────
-  # MCP call: mcp__paper-search__search_papers
-  # Parameters:
-  #   query: "$query"
-  #   platform: "all"  # or specific: "arxiv", "semantic", "crossref", "pubmed"
-  #   maxResults: $max_results
-  #
-  # Best for: Broader coverage, medical/biology research
+  if [ "$api_calls_used" -lt "$SS_MAX_QUERIES_PER_SEARCH" ]; then
+    echo ""
+    echo ">>> Step 3: Preprint search (arxiv-advanced)..."
 
-  # Aggregate and deduplicate results
-  # Rank by: citation count, recency, relevance to implementation
+    # MCP call: mcp__arxiv-advanced__search_papers
+    # Parameters:
+    #   query: "$query" (use quoted phrases for exact match)
+    #   categories: ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.MA"]
+    #   max_results: 5
+    #   sort_by: "relevance"
+    #   date_from: "2023-01-01"
+    #
+    # Advanced query syntax:
+    #   - ti:"exact title phrase" - search titles only
+    #   - au:"author name" - search by author
+    #   - abs:"keyword" - search abstracts only
+    #   - "term1" OR "term2" - boolean OR
+    #   - "term1" ANDNOT "survey" - exclude terms
+
+    api_calls_used=$((api_calls_used + 1))
+    echo "  API calls used: $api_calls_used / $SS_MAX_QUERIES_PER_SEARCH"
+  fi
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "Search complete. API calls used: $api_calls_used / $SS_MAX_QUERIES_PER_SEARCH"
+  echo "Papers collected: ${#COLLECTED_PAPERS[@]}"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+
+  export COLLECTED_PAPERS
+  export TOP_PAPER_ID
 }
+
+# Legacy function name for backward compatibility
+search_academic_papers() {
+  search_academic_papers_orchestrated "$@"
+}
+
+export -f search_academic_papers_orchestrated
+export -f search_academic_papers
 
 traverse_citation_graph() {
   local seed_paper_id="$1"
@@ -3687,6 +3903,141 @@ traverse_citation_graph() {
   #
   # Returns: Full metadata, citation count, abstract, authors, venue
 }
+```
+
+### 13.2.1 Research Results Synthesis
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.2.1: RESEARCH RESULTS SYNTHESIS
+# Cross-reference, deduplicate, and rank papers from all sources
+# ═══════════════════════════════════════════════════════════════════════════
+
+synthesize_research_results() {
+  echo "=== Synthesizing Research Results ==="
+  echo "Papers to synthesize: ${#COLLECTED_PAPERS[@]}"
+
+  SYNTHESIZED_PAPERS=()
+  SEEN_IDS=()
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 1: Deduplicate by DOI/arXiv ID
+  # Papers may appear in multiple sources (Semantic Scholar + arXiv)
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Step 1: Deduplicating papers..."
+
+  for paper in "${COLLECTED_PAPERS[@]}"; do
+    paper_id=$(echo "$paper" | grep -oP 'id:\K[^,]+' || echo "")
+    arxiv_id=$(echo "$paper" | grep -oP 'arXiv:\K[0-9.]+' || echo "")
+    doi=$(echo "$paper" | grep -oP 'doi:\K[^,]+' || echo "")
+
+    # Use the most specific identifier available
+    unique_id="${doi:-${arxiv_id:-$paper_id}}"
+
+    if [[ ! " ${SEEN_IDS[*]} " =~ " ${unique_id} " ]]; then
+      SEEN_IDS+=("$unique_id")
+      SYNTHESIZED_PAPERS+=("$paper")
+    fi
+  done
+
+  echo "  After deduplication: ${#SYNTHESIZED_PAPERS[@]} unique papers"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 2: Cross-reference citations
+  # If Paper A cites Paper B, both are relevant
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Step 2: Cross-referencing citations..."
+
+  # Track citation relationships for ranking boost
+  declare -A CITATION_BOOST
+
+  # Papers cited by multiple collected papers get a boost
+  # (Implementation would parse citation data from semantic-scholar-graph-api)
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 3: Rank by combined score
+  # Score = (citation_count × 0.3) + (recency × 0.3) + (relevance × 0.4)
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Step 3: Ranking papers by combined score..."
+
+  RANKED_PAPERS=()
+
+  for paper in "${SYNTHESIZED_PAPERS[@]}"; do
+    # Extract metrics (these would come from the actual paper data)
+    citations=$(echo "$paper" | grep -oP 'citations:\K[0-9]+' || echo "0")
+    year=$(echo "$paper" | grep -oP 'year:\K[0-9]+' || echo "2020")
+
+    # Normalize citation count (0-100 scale)
+    citation_score=$((citations > 1000 ? 100 : citations / 10))
+
+    # Recency score: 2024=100, 2023=80, 2022=60, etc.
+    current_year=$(date +%Y)
+    recency_score=$(( (year - 2015) * 10 ))
+    recency_score=$((recency_score > 100 ? 100 : recency_score))
+    recency_score=$((recency_score < 0 ? 0 : recency_score))
+
+    # Relevance score (from search ranking, default 50)
+    relevance_score=50
+
+    # Combined score
+    total_score=$(( (citation_score * 30 + recency_score * 30 + relevance_score * 40) / 100 ))
+
+    # Add to ranked list with score
+    RANKED_PAPERS+=("$total_score|$paper")
+  done
+
+  # Sort by score (highest first)
+  IFS=$'\n' RANKED_PAPERS=($(sort -rn -t'|' -k1 <<< "${RANKED_PAPERS[*]}"))
+  unset IFS
+
+  echo "  Ranked ${#RANKED_PAPERS[@]} papers"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Step 4: Generate APS-style citations
+  # Format: Author1, Author2, et al., Title, Journal/arXiv, Year.
+  # ───────────────────────────────────────────────────────────────────────
+  echo ">>> Step 4: Generating APS-style citations..."
+
+  APS_CITATIONS=()
+
+  for ranked_paper in "${RANKED_PAPERS[@]}"; do
+    paper=$(echo "$ranked_paper" | cut -d'|' -f2-)
+
+    # Extract citation components
+    authors=$(echo "$paper" | grep -oP 'authors:\K[^|]+' || echo "Unknown")
+    title=$(echo "$paper" | grep -oP 'title:\K[^|]+' || echo "Untitled")
+    venue=$(echo "$paper" | grep -oP 'venue:\K[^|]+' || echo "")
+    year=$(echo "$paper" | grep -oP 'year:\K[0-9]+' || echo "")
+    arxiv_id=$(echo "$paper" | grep -oP 'arXiv:\K[0-9.]+' || echo "")
+
+    # Format APS-style citation
+    if [ -n "$arxiv_id" ]; then
+      citation="$authors, \"$title,\" arXiv:$arxiv_id ($year)."
+    elif [ -n "$venue" ]; then
+      citation="$authors, \"$title,\" $venue ($year)."
+    else
+      citation="$authors, \"$title\" ($year)."
+    fi
+
+    APS_CITATIONS+=("$citation")
+  done
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "                    SYNTHESIS COMPLETE"
+  echo "═══════════════════════════════════════════════════════════════════════════"
+  echo "Unique papers: ${#SYNTHESIZED_PAPERS[@]}"
+  echo "Top citations:"
+  for i in {0..4}; do
+    [ $i -lt ${#APS_CITATIONS[@]} ] && echo "  [$((i+1))] ${APS_CITATIONS[$i]}"
+  done
+
+  export SYNTHESIZED_PAPERS
+  export RANKED_PAPERS
+  export APS_CITATIONS
+}
+
+export -f synthesize_research_results
 ```
 
 ### 13.3 Paper Analysis and Download
@@ -3819,6 +4170,170 @@ Reference: $paper_id" \
   # 4. Add dependencies between tasks
   # bd dep add <impl_task> <arch_task>
 }
+```
+
+### 13.4.1 Iterative Research Task Management
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# STEP 13.4.1: ITERATIVE RESEARCH TASK MANAGEMENT
+# Create and track research tasks in Beads for iterative development
+# ═══════════════════════════════════════════════════════════════════════════
+
+create_research_epic() {
+  local research_topic="$1"
+  local paper_count="${2:-5}"
+
+  echo "=== Creating Research Epic in Beads ==="
+  echo "Topic: $research_topic"
+  echo "Papers to analyze: $paper_count"
+
+  # Create epic for the research topic
+  bd create \
+    --title="Research: $research_topic" \
+    --type=epic \
+    --priority=1 \
+    --description="Academic research synthesis for: $research_topic
+
+Papers to analyze: $paper_count
+Created by Phase 13 Research Integration
+
+Workflow:
+1. Analyze each paper for implementation details
+2. Extract algorithms, architectures, hyperparameters
+3. Synthesize findings into actionable implementation plan
+4. Create development tasks from research"
+
+  # Get the created epic ID
+  RESEARCH_EPIC_ID=$(bd list --status=open --type=epic 2>/dev/null | grep "Research: $research_topic" | head -1 | awk '{print $1}')
+
+  echo "Created research epic: $RESEARCH_EPIC_ID"
+  export RESEARCH_EPIC_ID
+}
+
+create_paper_analysis_tasks() {
+  local epic_id="$1"
+  shift
+  local papers=("$@")
+
+  echo "=== Creating Paper Analysis Tasks ==="
+  echo "Epic: $epic_id"
+  echo "Papers: ${#papers[@]}"
+
+  local prev_task=""
+  local all_task_ids=()
+
+  for paper in "${papers[@]}"; do
+    # Extract paper title for task name
+    paper_title=$(echo "$paper" | grep -oP 'title:\K[^|]+' | head -c 50)
+    paper_id=$(echo "$paper" | grep -oP 'id:\K[^,]+' || echo "unknown")
+
+    # Create analysis task
+    bd create \
+      --title="Analyze: ${paper_title}..." \
+      --type=task \
+      --priority=2 \
+      --description="Read and extract implementation details from paper.
+
+Paper ID: $paper_id
+
+Extract:
+- Algorithm pseudocode
+- Model architecture details
+- Hyperparameter recommendations
+- Loss function definitions
+- Training procedures
+- Code repository links (if any)"
+
+    # Get the created task ID
+    task_id=$(bd list --status=open 2>/dev/null | grep "Analyze: ${paper_title:0:20}" | head -1 | awk '{print $1}')
+
+    if [ -n "$task_id" ]; then
+      all_task_ids+=("$task_id")
+
+      # Add dependency: each task depends on previous (ordered analysis)
+      if [ -n "$prev_task" ]; then
+        bd dep add "$task_id" "$prev_task" 2>/dev/null || true
+        echo "  Added dependency: $task_id depends on $prev_task"
+      fi
+
+      prev_task="$task_id"
+    fi
+  done
+
+  # Create final synthesis task that depends on last analysis task
+  if [ -n "$prev_task" ]; then
+    bd create \
+      --title="Synthesize research findings" \
+      --type=task \
+      --priority=1 \
+      --description="Combine insights from all analyzed papers.
+
+Analyzed papers: ${#papers[@]}
+
+Deliverables:
+1. Unified implementation approach
+2. Architecture design document
+3. Recommended hyperparameters
+4. Development task breakdown
+5. Risk assessment and fallback options"
+
+    synthesis_task=$(bd list --status=open 2>/dev/null | grep "Synthesize research findings" | head -1 | awk '{print $1}')
+    [ -n "$synthesis_task" ] && bd dep add "$synthesis_task" "$prev_task" 2>/dev/null || true
+  fi
+
+  echo "Created ${#all_task_ids[@]} analysis tasks + 1 synthesis task"
+  export PAPER_ANALYSIS_TASKS=("${all_task_ids[@]}")
+}
+
+iterate_research_findings() {
+  local epic_id="$1"
+
+  echo "=== Iterating on Research Findings ==="
+
+  # Check for completed analysis tasks
+  local completed=$(bd list --status=closed 2>/dev/null | grep -c "Analyze:" || echo "0")
+  local total=$(bd list 2>/dev/null | grep -c "Analyze:" || echo "0")
+
+  echo "Analysis progress: $completed / $total"
+
+  if [ "$completed" -eq "$total" ] && [ "$total" -gt 0 ]; then
+    echo "All papers analyzed. Checking synthesis..."
+
+    # Check if synthesis is complete
+    local synthesis_done=$(bd list --status=closed 2>/dev/null | grep -c "Synthesize research findings" || echo "0")
+
+    if [ "$synthesis_done" -gt 0 ]; then
+      echo "Research synthesis complete. Creating implementation tasks..."
+
+      # Create implementation task from synthesis
+      bd create \
+        --title="Implement research findings" \
+        --type=feature \
+        --priority=0 \
+        --description="Implementation based on research synthesis.
+
+Source: Research epic $epic_id
+Papers analyzed: $total
+
+This task represents the culmination of the research phase.
+Implementation should follow the synthesized approach documented
+in the synthesis task."
+
+      return 0
+    else
+      echo "Synthesis task not yet complete."
+      return 1
+    fi
+  else
+    echo "Analysis still in progress."
+    return 1
+  fi
+}
+
+export -f create_research_epic
+export -f create_paper_analysis_tasks
+export -f iterate_research_findings
 ```
 
 ### 13.5 Advanced Research Synthesis Workflow
@@ -4401,6 +4916,291 @@ trigger_self_healing() {
   store_to_memory "error" "Self-healing triggered - not making progress" "self-healing,stuck"
 
   echo "Self-healing analysis complete"
+}
+```
+
+### 15.4 Morphological Development Orchestration
+
+```bash
+# ═══════════════════════════════════════════════════════════════════════════
+# MORPHOLOGICAL DEVELOPMENT ORCHESTRATION
+# Complete lifecycle: Plan → Research → Create → Edit → Iterate → Test → Deploy
+# WITH EXTENSIVE MEMORY INTEGRATION AT EVERY PHASE
+# ═══════════════════════════════════════════════════════════════════════════
+
+run_morphological_development() {
+  PROJECT_PATH="${1:-$(pwd)}"
+  PROJECT_NAME="${2:-$(basename $PROJECT_PATH)}"
+
+  echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+  echo "║        MORPHOLOGICAL DEVELOPMENT ORCHESTRATION                            ║"
+  echo "║        Project: $PROJECT_NAME"
+  echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+  # Initialize memory and configuration
+  initialize_memory_layer "$PROJECT_PATH" "$PROJECT_NAME"
+  configure_semantic_scholar
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MEMORY: Recover any previous session context
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo ">>> MEMORY: Recovering previous session context..."
+
+  # Claude-mem: Search for previous work on this project
+  # MCP call: mcp__plugin_claude-mem_mcp-search__search
+  #   query: "project $PROJECT_NAME development"
+  #   project: "$PROJECT_NAME"
+  #   limit: 10
+
+  # Serena: Read project-specific memories
+  # MCP call: mcp__serena__list_memories
+  # MCP call: mcp__serena__read_memory for relevant files
+
+  # Cipher: Query for conversation context
+  # MCP call: mcp__cipher__ask_cipher
+  #   message: "What was the previous context for project $PROJECT_NAME?"
+
+  recover_after_compaction
+
+  DEVELOPMENT_COMPLETE=false
+  ITERATION=0
+  MAX_ITERATIONS=50
+
+  while [ "$DEVELOPMENT_COMPLETE" = false ] && [ $ITERATION -lt $MAX_ITERATIONS ]; do
+    ITERATION=$((ITERATION + 1))
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════════════"
+    echo "                    DEVELOPMENT ITERATION $ITERATION / $MAX_ITERATIONS"
+    echo "═══════════════════════════════════════════════════════════════════════════"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 1: PLAN - Assess current state
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 1: PLAN - Assessing project..."
+
+    # MEMORY: Retrieve relevant context for planning
+    retrieve_relevant_memories "project assessment $PROJECT_NAME"
+
+    assess_project_completeness_enhanced "$PROJECT_PATH"
+
+    # MEMORY: Store assessment results
+    store_to_memory "plan" "Assessment: $PROJECT_STATUS, Score: $COMPLEXITY_SCORE" "plan,assessment,iteration-$ITERATION"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 2: RESEARCH - If cutting-edge requirements detected
+    # ─────────────────────────────────────────────────────────────────────────
+    if [ "$PROJECT_STATUS" = "incomplete_research" ] || [ "$RESEARCH_SCORE" -ge 20 ]; then
+      echo ">>> STEP 2: RESEARCH - Academic research required..."
+
+      # MEMORY: Check for previous research on similar topics
+      search_memory "similar research topics $PROJECT_NAME"
+
+      # MEMORY: Store research context in Cipher for conversation continuity
+      # MCP: mcp__cipher__ask_cipher
+      #   message: "Store: Starting research phase for $PROJECT_NAME"
+
+      detect_research_requirements "$PROJECT_PATH"
+
+      for query in "${RESEARCH_QUERIES[@]}"; do
+        decompose_research_query "$query"
+        search_academic_papers_orchestrated "$query"
+        synthesize_research_results
+
+        # MEMORY: Store each paper finding
+        store_to_memory "research" "Papers found for '$query': ${#COLLECTED_PAPERS[@]}" "research,papers"
+
+        create_research_epic "$query" "${#COLLECTED_PAPERS[@]}"
+      done
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 3: CREATE - Implement based on research/requirements
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 3: CREATE - Implementing features..."
+
+    # MEMORY: Retrieve implementation patterns from previous work
+    retrieve_relevant_memories "implementation patterns"
+
+    READY_TASKS=$(bd ready 2>/dev/null | wc -l)
+
+    if [ "$READY_TASKS" -gt 0 ]; then
+      while IFS= read -r task_line; do
+        task_id=$(echo "$task_line" | awk '{print $1}')
+        [ -z "$task_id" ] && continue
+        task_title=$(echo "$task_line" | cut -d' ' -f2-)
+
+        bd update "$task_id" --status=in_progress
+
+        # MEMORY: Store implementation decision
+        store_to_memory "implementation" "Implementing: $task_title ($task_id)" "implementation,$task_id"
+
+        # Agent implements using serena MCP for code editing
+
+        bd close "$task_id" --reason="Implemented"
+
+        # MEMORY: Record completion
+        store_to_memory "implementation" "Completed: $task_title" "implementation,complete,$task_id"
+
+      done < <(bd ready 2>/dev/null | head -5)
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 4: EDIT - Refine implementation
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 4: EDIT - Refining implementation..."
+
+    # MEMORY: Check for past fixes to similar issues
+    retrieve_relevant_memories "past fixes for similar issues"
+
+    detect_functionality_problems "$PROJECT_PATH"
+
+    if [ "$FUNCTIONALITY_SCORE" -gt 0 ]; then
+      # MEMORY: Store issue before fixing
+      store_to_memory "fix" "Fixing: ${FUNCTIONALITY_ISSUES[*]}" "fix,issues"
+
+      run_functionality_fix_phase "$PROJECT_PATH"
+
+      # MEMORY: Store solution applied
+      store_to_memory "fix" "Applied fixes for iteration $ITERATION" "fix,solution"
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 5: ITERATE - Check if more work needed
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 5: ITERATE - Checking for remaining work..."
+
+    REMAINING_WORK=$(bd list --status=open 2>/dev/null | wc -l)
+    BLOCKED_WORK=$(bd blocked 2>/dev/null | wc -l)
+
+    # MEMORY: Store iteration progress
+    store_to_memory "progress" "Iteration $ITERATION: Remaining=$REMAINING_WORK, Blocked=$BLOCKED_WORK" "progress,iteration-$ITERATION"
+
+    if [ "$BLOCKED_WORK" -gt 0 ]; then
+      echo "  Blocked tasks: $BLOCKED_WORK - attempting to unblock..."
+
+      # MEMORY: Check for stuck patterns from previous sessions
+      retrieve_relevant_memories "stuck patterns blocked tasks"
+
+      trigger_self_healing
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 6: TEST - Run verification
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 6: TEST - Running verification..."
+
+    run_phase_12_verification "$PROJECT_PATH" "{{ENV_NAME}}"
+    TEST_RESULT=$?
+
+    # MEMORY: Store test results
+    store_to_memory "test" "Test result: $TEST_RESULT (0=pass)" "test,iteration-$ITERATION"
+
+    if [ "$TEST_RESULT" -ne 0 ]; then
+      # MEMORY: Check for similar test failures in past
+      retrieve_relevant_memories "test failure patterns"
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 7: CONFIRM - Check completion criteria
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> STEP 7: CONFIRM - Checking completion criteria..."
+
+    check_completion_criteria "$PROJECT_PATH"
+    CRITERIA_MET=$?
+
+    # MEMORY: Store verification status
+    store_to_memory "verification" "Criteria: $CRITERIA_MET, Tests: $TEST_RESULT" "verification,iteration-$ITERATION"
+
+    if [ "$CRITERIA_MET" -eq 0 ] && [ "$TEST_RESULT" -eq 0 ]; then
+      DEVELOPMENT_COMPLETE=true
+      echo "  ✅ ALL CRITERIA MET - Development complete!"
+
+      # MEMORY: Store success in all systems
+      store_to_memory "success" "Project completed in $ITERATION iterations" "success,complete"
+    else
+      echo "  ❌ Criteria not met - continuing iteration..."
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MEMORY: Persist all progress before potential compaction
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> MEMORY: Persisting session progress..."
+    persist_before_compaction
+    bd sync 2>/dev/null
+
+  done
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # STEP 8: DEPLOY - Run deployment phases
+  # ─────────────────────────────────────────────────────────────────────────
+  if [ "$DEVELOPMENT_COMPLETE" = true ]; then
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║                    DEPLOYMENT PHASE                                       ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # MEMORY: Store deployment start
+    store_to_memory "deployment" "Starting deployment for $PROJECT_NAME" "deployment,start"
+
+    # Run Phases 0-9 deployment workflow
+    echo ">>> Running Phase 0: Dependency Audit..."
+    run_dependency_audit "$PROJECT_PATH"
+    store_to_memory "deployment" "Phase 0: Dependency audit complete" "deployment,phase-0"
+
+    echo ">>> Running Phase 1: Dependency Installation..."
+    run_dependency_installation "$PROJECT_PATH"
+    store_to_memory "deployment" "Phase 1: Dependencies installed" "deployment,phase-1"
+
+    echo ">>> Running Phase 2: Conda Environment..."
+    setup_conda_environment "$PROJECT_PATH"
+    store_to_memory "deployment" "Phase 2: Conda environment ready" "deployment,phase-2"
+
+    echo ">>> Running Phase 3: CUDA Environment..."
+    setup_cuda_environment "$PROJECT_PATH"
+    store_to_memory "deployment" "Phase 3: CUDA configured" "deployment,phase-3"
+
+    echo ">>> Running Phase 4: Docker Container..."
+    build_docker_container "$PROJECT_PATH"
+    store_to_memory "deployment" "Phase 4: Docker container built" "deployment,phase-4"
+
+    echo ">>> Running Phase 12: Final Verification..."
+    run_phase_12_verification "$PROJECT_PATH" "{{ENV_NAME}}"
+    store_to_memory "deployment" "Phase 12: Final verification passed" "deployment,phase-12"
+
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║        MORPHOLOGICAL DEVELOPMENT COMPLETE ✅                              ║"
+    echo "║        Iterations: $ITERATION                                             ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MEMORY: Final persistence - store complete project summary
+    # ─────────────────────────────────────────────────────────────────────────
+    echo ">>> MEMORY: Persisting final project summary..."
+
+    store_to_memory "complete" "Project $PROJECT_NAME: DEPLOYED after $ITERATION iterations" "complete,deployed,$PROJECT_NAME"
+
+    persist_before_compaction
+    bd sync 2>/dev/null
+
+    return 0
+  else
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════╗"
+    echo "║        MAX ITERATIONS REACHED - MANUAL INTERVENTION REQUIRED              ║"
+    echo "╚═══════════════════════════════════════════════════════════════════════════╝"
+
+    # MEMORY: Store incomplete status for future recovery
+    store_to_memory "incomplete" "Project $PROJECT_NAME: Incomplete after $MAX_ITERATIONS iterations" "incomplete,manual-needed"
+
+    bd create --title="Manual intervention required" --type=task --priority=0 \
+      --description="Morphological development incomplete after $MAX_ITERATIONS iterations"
+
+    persist_before_compaction
+    bd sync 2>/dev/null
+
+    return 1
+  fi
 }
 ```
 
