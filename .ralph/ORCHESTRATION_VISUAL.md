@@ -736,7 +736,9 @@ For display in terminals without Mermaid rendering support.
 |----------|---------|
 | `MASTER_PROMPT_TEMPLATE.md` | Full orchestration documentation |
 | `PART1_INFRASTRUCTURE.md` | Phases 0-9 detailed |
-| `PART2_EXECUTION.md` | Phases 10-15 detailed |
+| `PART2A_PHASES_10-12.md` | Phases 10-12: Gap Detection, Assessment, Development |
+| `PART2B_PHASE_13.md` | Phase 13: Academic Research Integration |
+| `PART2C_PHASES_14-15.md` | Phases 14-15: Fix, Master Orchestration |
 | `ORCHESTRATION_ESSENTIALS.md` | Quick reference guide |
 | `prd.json` | Current project definition |
 | `progress.txt` | Iteration log |

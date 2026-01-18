@@ -269,12 +269,15 @@ bd sync                             # Sync with git
 
 ```
 .ralph/
-├── PART1_INFRASTRUCTURE.md    # Phases 0-9 (~1656 lines)
-├── PART2_EXECUTION.md         # Phases 10-15 (~3667 lines)
-├── ORCHESTRATION_ESSENTIALS.md # This file (~400 lines)
-├── prd.json                   # Current task definition
-├── progress.txt               # Iteration log
-└── prompt.md                  # Loop iteration prompt
+├── PART1_INFRASTRUCTURE.md      # Phases 0-9 (~1656 lines)
+├── PART2A_PHASES_10-12.md       # Phases 10-12: Gap Detection, Assessment, Development
+├── PART2B_PHASE_13.md           # Phase 13: Academic Research Integration
+├── PART2C_PHASES_14-15.md       # Phases 14-15: Functionality Fix, Master Orchestration
+├── ORCHESTRATION_ESSENTIALS.md  # This file (~400 lines)
+├── ORCHESTRATION_VISUAL.md      # Visual diagrams and flow charts
+├── prd.json                     # Current task definition
+├── progress.txt                 # Iteration log
+└── prompt.md                    # Loop iteration prompt
 ```
 
 ---
